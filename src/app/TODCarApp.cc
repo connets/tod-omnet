@@ -16,8 +16,8 @@
 #include "inet/networklayer/common/FragmentationTag_m.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
-#include "packets/TODMessage_m.h"
-#include "carla_omnet/CarlaCommunicationManager.h"
+#include "../packets/TODMessage_m.h"
+#include "../carla_omnet/CarlaCommunicationManager.h"
 
 using namespace omnetpp;
 using namespace inet;
@@ -111,23 +111,23 @@ void TODCarApp::sendPacket()
 {
 
 
-    std::ostringstream str;
-    str << packetName << "-" << numSent;
-    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(1);
-
-    Packet *packet = new Packet("CarStatus_" + numSent);
-    if (dontFragment)
-        packet->addTag<FragmentationReq>()->setDontFragment(true);
-    const auto& payload = makeShared<TODMessage>();
-    payload->setChunkLength(B(par("messageLength")));
-    payload->setMsgId(answer.msg_id);
-    payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
-    packet->insertAtBack(payload);
-
-    L3Address destAddr = chooseDestAddr();
-    emit(packetSentSignal, packet);
-    socket.sendTo(packet, destAddr, destPort);
-    numSent++;
+//    std::ostringstream str;
+//    str << packetName << "-" << numSent;
+//    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(1);
+//
+//    Packet *packet = new Packet("CarStatus_" + numSent);
+//    if (dontFragment)
+//        packet->addTag<FragmentationReq>()->setDontFragment(true);
+//    const auto& payload = makeShared<TODMessage>();
+//    payload->setChunkLength(B(par("messageLength")));
+//    payload->setMsgId(answer.msg_id);
+//    payload->addTag<CreationTimeTag>()->setCreationTime(simTime());
+//    packet->insertAtBack(payload);
+//
+//    L3Address destAddr = chooseDestAddr();
+//    emit(packetSentSignal, packet);
+//    socket.sendTo(packet, destAddr, destPort);
+//    numSent++;
 
 
 }
@@ -154,7 +154,7 @@ void TODCarApp::processStart()
 
     if (!destAddresses.empty()) {
         selfMsg->setKind(SEND);
-        scheduleClockEventAt(this->carlaCommunicationManager->coSimulationStartTimestamp + this->refreshInterval, selfMsg);
+        //scheduleClockEventAt(this->carlaCommunicationManager->coSimulationStartTimestamp + this->refreshInterval, selfMsg);
     }
     else {
         if (stopTime >= CLOCKTIME_ZERO) {
@@ -239,12 +239,12 @@ void TODCarApp::refreshDisplay() const
 
 void TODCarApp::processPacket(Packet *pk)
 {
-    const auto& received_payload = pk->peekData<TODMessage>();
-    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
-    emit(packetReceivedSignal, pk);
-    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
-    delete pk;
-    numReceived++;
+//    const auto& received_payload = pk->peekData<TODMessage>();
+//    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
+//    emit(packetReceivedSignal, pk);
+//    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
+//    delete pk;
+//    numReceived++;
 }
 
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)

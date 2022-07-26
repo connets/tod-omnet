@@ -10,7 +10,7 @@
 #include <omnetpp.h>
 #include "inet/applications/base/ApplicationBase.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
-#include "carla_omnet/CarlaCommunicationManager.h"
+#include "../carla_omnet/CarlaCommunicationManager.h"
 
 using namespace omnetpp;
 using namespace inet;

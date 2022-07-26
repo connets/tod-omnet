@@ -14,8 +14,8 @@
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 using namespace inet;
 using namespace std;
-#include "packets/TODMessage_m.h"
-#include "carla_omnet/CarlaCommunicationManager.h"
+#include "../packets/TODMessage_m.h"
+#include "../carla_omnet/CarlaCommunicationManager.h"
 
 
 Define_Module(TODAgentApp);
@@ -44,27 +44,27 @@ void TODAgentApp::socketDataArrived(UdpSocket *socket, Packet *pk)
     EV << "TODAgentApp  " << "received msg" << endl;
     const auto& received_payload = pk->peekData<TODMessage>();
 
-    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
+//    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
+//
+//    L3Address remoteAddress = pk->getTag<L3AddressInd>()->getSrcAddress();
+//    int srcPort = pk->getTag<L4PortInd>()->getSrcPort();
+//
+//    EV_INFO << "TODAgentApp " << "message arrived with id " << received_payload->getMsgId() << endl;
+//    EV_INFO << "TODAgentApp " << simTime().dbl() * 1000;
+//    Packet *packet = new Packet("Response TOD");
+//
+//    const auto& payload = makeShared<TODMessage>();
+//    payload->setChunkLength(B(123));
+//    payload->setMsgId(answer.msg_id);
+//    //payload->addTag<CreationTimeTag>()->setCreationTime(123);
+//    packet->insertAtBack(payload);
+//    // statistics
+//    delete pk;
 
-    L3Address remoteAddress = pk->getTag<L3AddressInd>()->getSrcAddress();
-    int srcPort = pk->getTag<L4PortInd>()->getSrcPort();
-
-    EV_INFO << "TODAgentApp " << "message arrived with id " << received_payload->getMsgId() << endl;
-    EV_INFO << "TODAgentApp " << simTime().dbl() * 1000;
-    Packet *packet = new Packet("Response TOD");
-
-    const auto& payload = makeShared<TODMessage>();
-    payload->setChunkLength(B(123));
-    payload->setMsgId(answer.msg_id);
-    //payload->addTag<CreationTimeTag>()->setCreationTime(123);
-    packet->insertAtBack(payload);
-    // statistics
-    delete pk;
-
-    numEchoed++;
-    emit(packetSentSignal, packet);
-    // send back
-    socket->sendTo(packet, remoteAddress, srcPort);
+//    numEchoed++;
+//    emit(packetSentSignal, packet);
+//    // send back
+//    socket->sendTo(packet, remoteAddress, srcPort);
 }
 
 

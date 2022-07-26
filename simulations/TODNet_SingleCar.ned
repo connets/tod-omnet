@@ -24,6 +24,7 @@ import simu5g.nodes.NR.NRUe;
 import simu5g.nodes.backgroundCell.BackgroundCell;
 import simu5g.world.radio.LteChannelControl;
 import tod_network.carla_omnet.CarlaCommunicationManager;
+import tod_network.nodes.CarlaCar;
 
 // SingleCell_standalone
 //
@@ -62,7 +63,7 @@ network TODNet
         gnb: gNodeB {
             @display("p=726.35,277.35626;is=vl");
         }
-        ue[numUe]: NRUe {
+        car: CarlaCar {
             @display("p=628.09375,411.68124");
         }
         
