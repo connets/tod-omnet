@@ -69,10 +69,13 @@ rma::receive_message_answer CarlaCommunicationManager::receiveMessage(int msg_id
 }
 
 void CarlaCommunicationManager::connect(){
+    float ts = simTime().dbl();
+
     string addr = protocol + "://" + host + ":" + std::to_string(port);
     EV << "Trying connecting to: " << addr << endl;
     socket.connect("tcp://localhost:5555");
-    const std::string data{"{\"request_type\":\"handshake\"}"};
+    const std::string data{"{\"request_type\":\"handshake\", \"timestamp\":" + std::to_string(ts) + "}"};
+
     socket.send(zmq::buffer(data), zmq::send_flags::none);
     zmq::message_t reply{};
     this->socket.recv(reply, zmq::recv_flags::none);
