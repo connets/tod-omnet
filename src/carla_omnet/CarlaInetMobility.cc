@@ -20,9 +20,9 @@ Define_Module(CarlaInetMobility);
 void CarlaInetMobility::initialize(int stage)
 {
     MobilityBase::initialize(stage);
-    if (stage == inet::INITSTAGE_LOCAL){
-        manager = check_and_cast<CarlaCommunicationManager*>(getModuleByPath("<root>.carlaCommunicationManager"));
-    }
+//    if (stage == inet::INITSTAGE_LOCAL){
+//        manager = check_and_cast<CarlaCommunicationManager*>(getModuleByPath("<root>.carlaCommunicationManager"));
+//    }
 }
 
 void CarlaInetMobility::preInitialize(const inet::Coord& position, double angle){
@@ -30,8 +30,12 @@ void CarlaInetMobility::preInitialize(const inet::Coord& position, double angle)
 }
 
 
-void CarlaInetMobility::nextPosition(const inet::Coord& position, double angle){
+void CarlaInetMobility::nextPosition(const inet::Coord& position, const inet::Coord& velocity,  const inet::Quaternion& rotation){
     lastPosition = position;
+    lastVelocity = velocity;
+    lastOrientation = rotation;
+
+    emitMobilityStateChangedSignal();
 }
 
 

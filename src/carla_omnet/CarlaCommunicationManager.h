@@ -19,6 +19,7 @@
 #include "inet/common/INETDefs.h"
 #include "CarlaApi.h"
 #include "utils.h"
+#include "CarlaInetMobility.h"
 
 using namespace std;
 using namespace omnetpp;
@@ -31,12 +32,17 @@ public:
     CarlaCommunicationManager();
     ~CarlaCommunicationManager();
 
-    void connect();
     bool isConnected() const
     {
         return true; //static_cast<bool>(connection);
     }
 
+    simtime_t getCarlaInitialCarlaTimestamp() { return initial_timestamp; }
+
+    //API used by applications
+    string getActorStatus(string actorId);
+    string computeInstruction(string actorId, string statusId, string agentId);
+    void applyInstruction(string actorId, string instructionId);
 
 
 protected:
@@ -45,9 +51,10 @@ protected:
     virtual void handleMessage(cMessage *msg) override;
 
 private:
+    void connect();
     void doSimulationTimeStep();
     void initializeCarla();
-    list<carla_api_base::init_actor> getModulesToTrack();
+    void findModulesToTrack();
 
     void sendToCarla(json msg);
 
@@ -57,12 +64,14 @@ private:
     string protocol;
     string host;
     double simulationTimeStep;
+    simtime_t initial_timestamp = 0;
     int seed;
     int port;
     zmq::context_t context;
     zmq::socket_t socket;
 
     cMessage *simulationTimeStepEvent =  new cMessage("simulationTimeStep");
+    map<string,CarlaInetMobility*> modulesToTrack = map<string,CarlaInetMobility*>();
 };
 
 #endif

@@ -1,13 +1,27 @@
 package tod_network.app;
 
-import inet.applications.udpapp.UdpBasicApp;
+import inet.applications.contract.IApp;
 
 
-simple TODCarApp extends UdpBasicApp
+simple TODCarApp like IApp
 {
     parameters:
-        string todAgentType = default("normal");
+        @class(TODCarApp);
+        @display("i=block/app");
         
+        string agentConfiguration = default("normal");  	//this must be a type supported by Carla client
+        string destAddress = default("server");
+        int destPort = 3000;
+        volatile int statusMessageLength @unit(byte) = default(8kB);
+        double statusUpdateInterval @unit(s) = default(50ms);
         
+        @signal[packetSent](type=inet::Packet);
+        @signal[packetReceived](type=inet::Packet);
+        @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);
+        @statistic[throughput](title="throughput"; unit=bps; source="throughput(packetReceived)"; record=vector);
+        
+    gates:
+        input socketIn;
+        output socketOut;
 }
 

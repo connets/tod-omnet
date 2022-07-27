@@ -8,23 +8,18 @@ namespace carla_api_base{
     /*Definition of all sub-components*/
     struct init_agent {
         std::string agent_id;
-        std::string agent_type;
+        std::string agent_configuration;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_agent, agent_id, agent_type)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_agent, agent_id, agent_configuration)
 
 
     struct init_actor {
-        std::string vehicle_id;
-        std::string vehicle_type;
+        std::string actor_id;
+        std::string actor_configuration;
+        std::string route;
         std::list<init_agent> agents;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_actor, vehicle_id, vehicle_type, agents)
-
-
-    struct init_other_actor {
-        std::string actor_id;
-    };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_other_actor, actor_id)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_actor, actor_id, actor_configuration, agents)
 
 
     struct node_position {
@@ -63,29 +58,37 @@ namespace carla_api_payload{
 
 
     struct updated_position{
-        std::list<carla_api_base::node_position> nodes;
+        std::list<carla_api_base::node_position> actors;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(updated_position, nodes)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(updated_position, actors)
 
 
     struct vehicle_status_update{
-        std::string node_id;
+        std::string actor_id;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_status_update, node_id)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_status_update, actor_id)
 
 
     struct vechile_status{
-        std::string node_id;
+        std::string actor_id;
         std::string status_id;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vechile_status, node_id, status_id)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vechile_status, actor_id, status_id)
+
+
+    struct compute_instuction{
+        std::string actor_id;
+        std::string agent_id;
+        std::string status_id;
+    };
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(compute_instuction, actor_id, agent_id, status_id)
 
 
     struct vehicle_instruction {
-        std::string node_id;
+        std::string actor_id;
         std::string instruction_id;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_instruction, node_id, instruction_id)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_instruction, actor_id, instruction_id)
 
 
 }
@@ -145,7 +148,7 @@ namespace carla_api{
     /* OMNET --> CARLA*/
     struct compute_instruction {
         std::string message_type = "COMPUTE_INSTRUCTION";
-        carla_api_payload::vechile_status payload;
+        carla_api_payload::compute_instuction payload;
         double timestamp;
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(compute_instruction, message_type, payload, timestamp)

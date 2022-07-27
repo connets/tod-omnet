@@ -12,19 +12,39 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 //
+
+
 import inet.common.INETDefs;
 import inet.common.Units;
 import inet.common.packet.chunk.Chunk;
 
-cplusplus {{
-#include "inet/common/packet/ChunkBuffer.h"
-#include "inet/common/packet/ReassemblyBuffer.h"
-#include "inet/common/packet/ReorderBuffer.h"
-}}
 
 namespace inet;
 
+enum TODMessageType
+{
+   STATUS = 0;
+   INSTRUCTION = 1;
+};
+
+
+
 class TODMessage extends FieldsChunk{
-	simtime_t creationTime;
-	int msgId;
+	//simtime_t creationTime;
+	TODMessageType messageType;
 }
+
+
+class TodStatusUpdateMessage extends TODMessage{
+    messageType = STATUS;
+	string actorId;
+	string statusId;
+} 
+
+class TodInstructionMessage extends TODMessage{
+    messageType = INSTRUCTION;
+	string actorId;
+	string instructionId;
+}
+
+

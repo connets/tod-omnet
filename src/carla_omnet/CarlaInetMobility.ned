@@ -29,5 +29,8 @@ simple CarlaInetMobility extends MobilityBase {
         
         string carlaActorType = default("simple_vehicle");
         
+        //Specify the name of the route, <empty string> means that the route is randomly defined by Carla
+        string route = default("");   
+        
         
 }

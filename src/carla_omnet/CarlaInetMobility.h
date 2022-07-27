@@ -16,12 +16,11 @@
 #ifndef __TOD_OMNET_NETWORK_CARLAINETMOBILITY_H_
 #define __TOD_OMNET_NETWORK_CARLAINETMOBILITY_H_
 
+
 #include <omnetpp.h>
 #include "inet/mobility/base/MobilityBase.h"
 
 using namespace omnetpp;
-
-#include "CarlaCommunicationManager.h"
 
 
 /**
@@ -35,7 +34,7 @@ public:
     virtual void initialize(int stage) override;
 
     /** @brief called by class CarlaCommunicationManager */
-    virtual void nextPosition(const inet::Coord& position, double angle);
+    virtual void nextPosition(const inet::Coord& position, const inet::Coord& velocity,  const inet::Quaternion& rotation);
 
 
     virtual const inet::Coord& getCurrentPosition() override;
@@ -55,8 +54,8 @@ protected:
     /** @brief The last angular velocity that was set by nextPosition(). */
     inet::Quaternion lastAngularVelocity;
 
-private:
-    CarlaCommunicationManager *manager = nullptr;
+//private:
+//    CarlaCommunicationManager *manager = nullptr;
 };
 
 #endif

@@ -12,8 +12,7 @@
 #include <vector>
 #include <omnetpp.h>
 
-#include "inet/applications/base/ApplicationBase.h"
-#include "inet/common/clock/ClockUserModuleMixin.h"
+#include "inet/networklayer/common/L3Address.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
 
 #include "../carla_omnet/CarlaCommunicationManager.h"
@@ -22,62 +21,56 @@ using namespace inet;
 /**
  * UDP application. See NED for more info.
  */
-class TODCarApp : public ClockUserModuleMixin<ApplicationBase>, public UdpSocket::ICallback
+class TODCarApp : public cSimpleModule, public UdpSocket::ICallback
 {
-  protected:
-    enum SelfMsgKinds { START = 1, SEND, STOP };
 
-    // parameters
-    std::vector<L3Address> destAddresses;
-    std::vector<std::string> destAddressStr;
-    int localPort = -1, destPort = -1;
-    clocktime_t startTime;
-    clocktime_t stopTime;
-    clocktime_t refreshInterval;
+private:
+    CarlaCommunicationManager* carlaCommunicationManager;
+    cMessage* updateStatusSelfMessage;
+    double statusUpdateInterval;
 
-    bool dontFragment = false;
-    const char *packetName = nullptr;
 
-    // state
+protected:
     UdpSocket socket;
-    ClockEvent *selfMsg = nullptr;
-
+    L3Address destAddress;
+    int destPort;
     // statistics
     int numSent = 0;
     int numReceived = 0;
 
-  protected:
-    virtual int numInitStages() const override { return NUM_INIT_STAGES; }
+
+protected:
+    virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
-    virtual void handleMessageWhenUp(cMessage *msg) override;
-    virtual void finish() override;
-    virtual void refreshDisplay() const override;
+    virtual void handleMessage(cMessage* msg) override;
 
-    // chooses random destination address
-    virtual L3Address chooseDestAddr();
-    virtual void sendPacket();
-    virtual void processPacket(Packet *msg);
-    virtual void setSocketOptions();
+    /*Application logic*/
+    virtual void sendUpdateStatusPacket();
 
-    virtual void processStart();
-    virtual void processSend();
-    virtual void processStop();
+    /*UDP logic*/
+    /**
+     * Notifies about data arrival, packet ownership is transferred to the callee.
+     */
+    virtual void socketDataArrived(UdpSocket *socket, Packet *packet);
 
-    virtual void handleStartOperation(LifecycleOperation *operation) override;
-    virtual void handleStopOperation(LifecycleOperation *operation) override;
-    virtual void handleCrashOperation(LifecycleOperation *operation) override;
+    /**
+     * Notifies about error indication arrival, indication ownership is transferred to the callee.
+     */
+    virtual void socketErrorArrived(UdpSocket *socket, Indication *indication);
 
-    virtual void socketDataArrived(UdpSocket *socket, Packet *packet) override;
-    virtual void socketErrorArrived(UdpSocket *socket, Indication *indication) override;
-    virtual void socketClosed(UdpSocket *socket) override;
+    /**
+     * Notifies about socket closed, indication ownership is transferred to the callee.
+     */
+    virtual void socketClosed(UdpSocket *socket);
 
-  public:
-    TODCarApp() {}
+
+    virtual void sendPacket(Packet *pk);
+    virtual void processPacket(Packet *pk);
+
+public:
     ~TODCarApp();
 
 
-  private:
-    CarlaCommunicationManager* carlaCommunicationManager;
 };
 
 #endif

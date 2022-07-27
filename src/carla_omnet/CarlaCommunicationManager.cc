@@ -9,7 +9,7 @@
 #include "inet/networklayer/common/L3AddressResolver.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 
-#include "CarlaInetMobility.h"
+#include "../app/TODCarApp.h"
 
 using namespace inet;
 using namespace std;
@@ -47,6 +47,7 @@ void CarlaCommunicationManager::initialize(int stage)
         host = par("host").stringValue();
         port = par("port");
         simulationTimeStep = par("simulationTimeStep");
+        findModulesToTrack();
         connect();
     }
 
@@ -55,29 +56,61 @@ void CarlaCommunicationManager::initialize(int stage)
     }
 }
 
-list<carla_api_base::init_actor> CarlaCommunicationManager::getModulesToTrack(){
-    auto actorList = list<carla_api_base::init_actor>();
+void CarlaCommunicationManager::findModulesToTrack(){
     auto rootModule = getModuleByPath("<root>");
-    auto mobilityModules = getSubmodulesOfType<CarlaInetMobility>(rootModule, true);
-    for (auto mobilityMod : mobilityModules) {
-        auto nodeModule = mobilityMod->getParentModule();
-        carla_api_base::init_actor item;
-        item.vehicle_id = nodeModule->getFullName();
-        item.vehicle_type = mobilityMod->par("carlaActorType").str();
-        actorList.push_back(item);
-//        inetmm->preInitialize(nodeId, inet::Coord(position.x, position.y), road_id, speed, heading.getRad());
+    auto mobilityModList = getSubmodulesOfType<CarlaInetMobility>(rootModule, true);
+    for (auto mobilityMod : mobilityModList) {
+        string nodeModuleName = mobilityMod->getParentModule()->getFullName();
+        modulesToTrack.insert(pair<string, CarlaInetMobility*>(nodeModuleName, mobilityMod));
     }
-
-    return actorList;
 }
 
 
 void CarlaCommunicationManager::initializeCarla(){
+    // conversion
+    auto actorList = list<carla_api_base::init_actor>();
+    for (auto elem : modulesToTrack) {
+        auto mobilityMod = elem.second;
+        auto nodeModule = mobilityMod->getParentModule();
+        carla_api_base::init_actor item;
+
+        item.actor_id = elem.first;
+        item.actor_configuration = mobilityMod->par("carlaActorType").str();
+        item.route = mobilityMod->par("route").str();
+        // Check if TOD application exists
+        auto agentList = list<carla_api_base::init_agent>();
+//        auto nodeApplications = nodeModule->getSubmodule("app");
+        for (cModule::SubmoduleIterator it(nodeModule); !it.end(); it++) {
+            cModule *submodule = *it;
+            if (strstr(submodule->getNedTypeName(),"TODCarApp") != nullptr){
+                carla_api_base::init_agent agent;
+                agent.agent_id = elem.first; // The same id of actor
+                agent.agent_configuration = submodule->par("agentConfiguration").str();
+                agentList.push_back(agent);
+            }
+            //EV << submodule->getFullName() << endl;
+        }
+//        if (nodeApplications!= nullptr){
+//            for (int i = 0; i < nodeApplications->getVectorSize(); i++){
+//                auto appModule = nodeModule->getSubmodule("app",i);
+//                if (appModule->getNedTypeName() == "TODAgentApp"){
+//                    carla_api_base::init_agent agent;
+//                    agent.agent_id = elem.first; // The same id of actor
+//                    agent.agent_configuration = appModule->par("agentConfiguration").str();
+//                    agentList.push_back(agent);
+//                }
+//            }
+//        }
+        item.agents = agentList;
+        actorList.push_back(item);
+    }
+
+    // compose the message
     carla_api::init msg;
     msg.payload.carla_configuration = par("carlaConfiguration").str();
     msg.payload.carla_timestep = simulationTimeStep;
     msg.payload.seed = 0; //TODO from config
-    msg.payload.actors = getModulesToTrack();
+    msg.payload.actors = actorList;
     msg.timestamp = simTime().dbl();
 
     json jsonMsg = msg;
@@ -86,40 +119,32 @@ void CarlaCommunicationManager::initializeCarla(){
     carla_api::init_completed response = receiveFromCarla<carla_api::init_completed>();
     // Carla informs about the intial timestamp, so I schedule the first similation step at that timestamp
     EV << "Initialization completed" << response.payload.initial_timestamp <<  endl;
-
+    //
+    initial_timestamp = simTime() + response.payload.initial_timestamp;
+    // schedule
     scheduleAt(simTime() + response.payload.initial_timestamp, simulationTimeStepEvent);
 }
 
 
 void CarlaCommunicationManager::doSimulationTimeStep(){
-//    float ts = simTime().dbl();
-//    EV_INFO << "CarlaCommunicationManager: " << ts;
-//    const std::string data{"{\"request_type\":\"simulation_step\", \"timestamp\":" + std::to_string(ts) + "}"};
-//    int len = sizeof(data);
-//    this->socket.send(zmq::buffer(data), zmq::send_flags::none);
-//    zmq::message_t reply{};
-//    if (!socket.recv(reply, zmq::recv_flags::none)){
-//        std::cout << "ERRORE";
-//    }
-//    json j = json::parse(reply.to_string());
-//    auto a = j.get<sta::simulation_step_answer>();
+    carla_api::simulation_step msg;
+    msg.payload.timestep = simulationTimeStep;
+    json jsonMsg = msg;
+    sendToCarla(jsonMsg);
+    // I expect updated_postion message
+    carla_api::updated_postion response = receiveFromCarla<carla_api::updated_postion>();
+
+    //Update position of all nodes in response
+    for(auto actor : response.payload.actors){
+        EV << "Position" << actor.position <<endl;
+        Coord position = Coord(actor.position[0], actor.position[1], actor.position[2]);
+        Coord velocity = Coord(actor.velocity[0],actor.velocity[1],actor.velocity[2]);
+        Quaternion rotation = Quaternion(EulerAngles(rad(actor.rotation[0]),rad(actor.rotation[1]),rad(actor.rotation[2])));
+        modulesToTrack[actor.actor_id]->nextPosition(position, velocity, rotation);
+    }
 
 }
 
-
-//rma::receive_message_answer CarlaCommunicationManager::receiveMessage(int msg_id){
-//    float ts = simTime().dbl();
-//    const std::string data{"{\"request_type\":\"receive_msg\", \"timestamp\":" + std::to_string(ts) + ", \"msg_id\":" + std::to_string(msg_id) + "}"};
-//    int len = sizeof(data);
-//    this->socket.send(zmq::buffer(data), zmq::send_flags::none);
-//    zmq::message_t reply{};
-//    if (!socket.recv(reply, zmq::recv_flags::none)){
-//        std::cout << "ERRORE";
-//    }
-//    json j = json::parse(reply.to_string());
-//    rma::receive_message_answer a = j.get<rma::receive_message_answer>();
-//    return a;
-//}
 
 void CarlaCommunicationManager::connect(){
     this->context = zmq::context_t {1};
@@ -138,9 +163,29 @@ void CarlaCommunicationManager::handleMessage(cMessage *msg)
     if (msg->isSelfMessage()){
         if (msg == simulationTimeStepEvent){
             doSimulationTimeStep();
-            EV_INFO << "HERE : =>  " << this->simulationTimeStep << endl;
+            EV_INFO << "Simulation step: " << this->simulationTimeStep << endl;
             scheduleAt(simTime() + this->simulationTimeStep, msg);
         }
     }
 }
+
+
+/*
+ * PUBLIC APIs
+ * */
+
+string CarlaCommunicationManager::getActorStatus(string actorId){
+    EV_INFO << "Contact Carla for getting the status id" << endl;
+    return "test";
+}
+
+string CarlaCommunicationManager::computeInstruction(string actorId, string statusId, string agentId){
+    EV_INFO << "Contact Carla for getting the instruction id" << endl;
+    return "test";
+}
+
+void CarlaCommunicationManager::applyInstruction(string actorId, string instructionId){
+    EV_INFO << "Contact Carla for applyingg the instruction id" << endl;
+}
+
 
