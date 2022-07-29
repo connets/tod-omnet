@@ -47,6 +47,7 @@ void TODCarApp::initialize(int stage)
         L3AddressResolver().tryResolve(par("destAddress"), destAddress);
         destPort = par("destPort");
         socket.setOutputGate(gate("socketOut"));
+        socket.bind(destPort);
         socket.setCallback(this);
         // wait statusUpdateInterval more before start to let Carla be ready
         simtime_t firstStatusUpdate = simTime()+ carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateInterval;
