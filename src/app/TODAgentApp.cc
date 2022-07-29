@@ -46,11 +46,18 @@ void TODAgentApp::initialize(int stage)
         L3AddressResolver().tryResolve(par("localAddress"), localAddress);
         int localPort = par("localPort");
         socket.setOutputGate(gate("socketOut"));
-        socket.bind(L3Address(), localPort);
+        socket.bind(localAddress, localPort);
         socket.setCallback(this);
     }
 }
 
+
+void TODAgentApp::handleMessage(cMessage* msg){
+    if (socket.belongsToSocket(msg)){
+        socket.processMessage(msg);
+    }
+
+}
 
 
 
@@ -82,7 +89,20 @@ void TODAgentApp::sendPacket(Packet *packet, L3Address address, int port){
 
 void TODAgentApp::handleStatusUpdateMessage(const char* actorId, const char* statusId, L3Address srcAddr, int srcPort){
     EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
-    carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
+    auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
+
+    auto packet = new Packet("Instruction");
+    auto data = makeShared<TodInstructionMessage>();
+    // Data
+    data->setChunkLength(B(par("instructionMessageLength")));
+    data->setActorId(actorId);
+    data->setInstructionId(instructionId.c_str());
+    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+    creationTimeTag->setCreationTime(simTime()); // store current time
+
+    packet->insertAtBack(data);
+
+    sendPacket(packet, srcAddr, srcPort);
 }
 
 

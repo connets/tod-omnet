@@ -34,6 +34,7 @@ void TODCarApp::initialize(int stage)
 {
     cModule::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
+        actorId = getParentModule()->getName();
         carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
                 getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
 
@@ -62,7 +63,12 @@ void TODCarApp::handleMessage(cMessage* msg){
             sendUpdateStatusPacket();
             scheduleAt(simTime()+statusUpdateInterval, msg);
         }
+    }else{
+        if(socket.belongsToSocket(msg)){
+            socket.processMessage(msg);
+        }
     }
+
 }
 
 
@@ -70,13 +76,13 @@ void TODCarApp::sendUpdateStatusPacket(){
     //get status id form CARLA API
 
     EV_INFO << "Send status update" << endl;
-    string statusId = "0";
+    string statusId = carlaCommunicationManager->getActorStatus(actorId);
 
     auto packet = new Packet("StatusUpdate");
     auto data = makeShared<TodStatusUpdateMessage>();
     // Data
     data->setChunkLength(B(par("statusMessageLength")));
-    data->setActorId(getParentModule()->getName());
+    data->setActorId(actorId);
     data->setStatusId(statusId.c_str());
     auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
     creationTimeTag->setCreationTime(simTime()); // store current time
@@ -131,11 +137,11 @@ void TODCarApp::processPacket(Packet *pk){
         EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(pk) <<endl;
     }
     //pk->
-//{
-////    const auto& received_payload = pk->peekData<TODMessage>();
-////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
-////    emit(packetReceivedSignal, pk);
-////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
-////    delete pk;
-////    numReceived++;
+    //{
+    ////    const auto& received_payload = pk->peekData<TODMessage>();
+    ////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
+    ////    emit(packetReceivedSignal, pk);
+    ////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
+    ////    delete pk;
+    ////    numReceived++;
 }

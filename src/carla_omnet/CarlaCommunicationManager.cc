@@ -25,8 +25,8 @@ CarlaCommunicationManager::~CarlaCommunicationManager(){
 
 void CarlaCommunicationManager::sendToCarla(json jsonMsg){
     std::stringstream msg;
-    msg << jsonMsg;
-    socket.send(zmq::buffer(msg.str()), zmq::send_flags::none);
+//    msg << jsonMsg.dump();
+    socket.send(zmq::buffer(jsonMsg.dump()), zmq::send_flags::none);
 }
 
 template <typename T> T CarlaCommunicationManager::receiveFromCarla(){
@@ -107,7 +107,7 @@ void CarlaCommunicationManager::initializeCarla(){
 
     // compose the message
     carla_api::init msg;
-    msg.payload.carla_configuration = par("carlaConfiguration").str();
+    msg.payload.carla_world_configuration = par("carlaConfiguration").str();
     msg.payload.carla_timestep = simulationTimeStep;
     msg.payload.seed = 0; //TODO from config
     msg.payload.actors = actorList;
@@ -149,7 +149,7 @@ void CarlaCommunicationManager::doSimulationTimeStep(){
 void CarlaCommunicationManager::connect(){
     this->context = zmq::context_t {1};
     this->socket = zmq::socket_t{context, zmq::socket_type::req};
-    int timeout_ms = 10000;
+    int timeout_ms = 30000;
     this->socket.setsockopt(ZMQ_RCVTIMEO, timeout_ms); // set timeout to value of timeout_ms
     this->socket.setsockopt(ZMQ_SNDTIMEO, timeout_ms); // set timeout to value of timeout_ms
     EV_INFO << "CarlaCommunicationManagerLog " << "Finish initialize" << endl;
@@ -176,16 +176,46 @@ void CarlaCommunicationManager::handleMessage(cMessage *msg)
 
 string CarlaCommunicationManager::getActorStatus(string actorId){
     EV_INFO << "Contact Carla for getting the status id" << endl;
-    return "test";
+    carla_api::vehicle_status_update msg;
+    msg.payload.actor_id = actorId;
+    msg.timestamp = simTime().dbl();
+    json jsonMsg = msg;
+    sendToCarla(jsonMsg);
+    // I expect VEHICLE_STATUS
+    carla_api::vehicle_status response = receiveFromCarla<carla_api::vehicle_status>();
+
+    return response.payload.status_id;
 }
 
 string CarlaCommunicationManager::computeInstruction(string actorId, string statusId, string agentId){
     EV_INFO << "Contact Carla for getting the instruction id" << endl;
-    return "test";
+    carla_api::compute_instruction msg;
+    msg.payload.actor_id = actorId;
+    msg.payload.agent_id = agentId;
+    msg.payload.status_id = statusId;
+    msg.timestamp = simTime().dbl();
+
+    json jsonMsg = msg;
+    sendToCarla(jsonMsg);
+    // I expect INSTRUCTION
+    carla_api::instruction response = receiveFromCarla<carla_api::instruction>();
+
+    return response.payload.instruction_id;
 }
 
 void CarlaCommunicationManager::applyInstruction(string actorId, string instructionId){
     EV_INFO << "Contact Carla for applyingg the instruction id" << endl;
+    carla_api::apply_instruction msg;
+    msg.payload.actor_id = actorId;
+    msg.payload.instruction_id = instructionId;
+    msg.timestamp = simTime().dbl();
+
+    json jsonMsg = msg;
+    sendToCarla(jsonMsg);
+    // I expect OK
+    carla_api::ok response = receiveFromCarla<carla_api::ok>();
+
+
 }
 
 

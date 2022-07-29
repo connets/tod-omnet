@@ -37,12 +37,12 @@ namespace carla_api_payload{
      *                  MESSAGE PAYLOAD DEFINITIONS
      * -------------------------------------------------------------*/
     struct init{
-        std::string carla_configuration;
+        std::string carla_world_configuration;
         double carla_timestep;
         int seed;
         std::list<carla_api_base::init_actor> actors;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init, carla_configuration, carla_timestep, seed, actors)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init, carla_world_configuration, carla_timestep, seed, actors)
 
 
     struct init_completed{
@@ -130,7 +130,7 @@ namespace carla_api{
 
     /* OMNET --> CARLA*/
     struct vehicle_status_update {
-        std::string message_type = "VEHICLE_STATUS_UPDATE";
+        std::string message_type = "ACTOR_STATUS_UPDATE";
         carla_api_payload::vehicle_status_update payload;
         double timestamp;
     };
@@ -139,7 +139,7 @@ namespace carla_api{
 
     /* CARLA --> OMNET */
     struct vehicle_status {
-        std::string message_type = "VEHICLE_STATUS";
+        std::string message_type = "ACTOR_STATUS";
         carla_api_payload::vechile_status payload;
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_status, message_type, payload)

@@ -28,7 +28,7 @@ private:
     CarlaCommunicationManager* carlaCommunicationManager;
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
-
+    const char *actorId;
 
 protected:
     UdpSocket socket;

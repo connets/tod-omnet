@@ -36,7 +36,7 @@ protected:
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
-    virtual void handleMessage(cMessage* msg) override {};
+    virtual void handleMessage(cMessage* msg) override;
 
     //handle application logic
     virtual void handleStatusUpdateMessage(const char *actorId, const char *statusId, L3Address srcAddr, int srcPort);
