@@ -76,6 +76,7 @@ void CarlaCommunicationManager::initializeCarla(){
 
         item.actor_id = elem.first;
         item.actor_configuration = mobilityMod->par("carlaActorType").str();
+        EV << mobilityMod->par("route") << endl;
         item.route = mobilityMod->par("route").str();
         // Check if TOD application exists
         auto agentList = list<carla_api_base::init_agent>();
@@ -114,6 +115,8 @@ void CarlaCommunicationManager::initializeCarla(){
     msg.timestamp = simTime().dbl();
 
     json jsonMsg = msg;
+
+    EV << jsonMsg.dump() << endl;
     sendToCarla(jsonMsg);
     // I expect to receive INIT_COMPLETE message
     carla_api::init_completed response = receiveFromCarla<carla_api::init_completed>();
@@ -129,6 +132,7 @@ void CarlaCommunicationManager::initializeCarla(){
 void CarlaCommunicationManager::doSimulationTimeStep(){
     carla_api::simulation_step msg;
     msg.payload.timestep = simulationTimeStep;
+    msg.timestamp = simTime().dbl();
     json jsonMsg = msg;
     sendToCarla(jsonMsg);
     // I expect updated_postion message

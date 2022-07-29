@@ -19,7 +19,7 @@ namespace carla_api_base{
         std::string route;
         std::list<init_agent> agents;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_actor, actor_id, actor_configuration, agents)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_actor, actor_id, actor_configuration, route, agents)
 
 
     struct node_position {
