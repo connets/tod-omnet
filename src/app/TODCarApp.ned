@@ -20,6 +20,7 @@ simple TODCarApp like IApp
         @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);
         @statistic[throughput](title="throughput"; unit=bps; source="throughput(packetReceived)"; record=vector);
         
+        
     gates:
         input socketIn;
         output socketOut;
