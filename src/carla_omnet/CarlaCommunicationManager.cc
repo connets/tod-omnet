@@ -20,22 +20,34 @@ CarlaCommunicationManager::CarlaCommunicationManager(){
 
 }
 CarlaCommunicationManager::~CarlaCommunicationManager(){
+    delete simulationTimeStepEvent;
+}
+
+
+void CarlaCommunicationManager::finish(){
 
 }
+
 
 void CarlaCommunicationManager::sendToCarla(json jsonMsg){
     std::stringstream msg;
-//    msg << jsonMsg.dump();
+    //    msg << jsonMsg.dump();
     socket.send(zmq::buffer(jsonMsg.dump()), zmq::send_flags::none);
 }
 
-template <typename T> T CarlaCommunicationManager::receiveFromCarla(){
+template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v){
     zmq::message_t reply{};
     if (!socket.recv(reply, zmq::recv_flags::none)){
         EV_ERROR << "receive error"<<endl;
     }
     json j = json::parse(reply.to_string());
-    return j.get<T>();
+    *v = j.get<T>();
+
+    if (j["simulation_finished"].get<bool>()){
+        endSimulation();
+        EV << "SIM ENDED" <<endl;
+    }
+    //return j.get<T>();
 }
 
 
@@ -80,7 +92,7 @@ void CarlaCommunicationManager::initializeCarla(){
         item.route = mobilityMod->par("route").str();
         // Check if TOD application exists
         auto agentList = list<carla_api_base::init_agent>();
-//        auto nodeApplications = nodeModule->getSubmodule("app");
+        //        auto nodeApplications = nodeModule->getSubmodule("app");
         for (cModule::SubmoduleIterator it(nodeModule); !it.end(); it++) {
             cModule *submodule = *it;
             if (strstr(submodule->getNedTypeName(),"TODCarApp") != nullptr){
@@ -91,17 +103,7 @@ void CarlaCommunicationManager::initializeCarla(){
             }
             //EV << submodule->getFullName() << endl;
         }
-//        if (nodeApplications!= nullptr){
-//            for (int i = 0; i < nodeApplications->getVectorSize(); i++){
-//                auto appModule = nodeModule->getSubmodule("app",i);
-//                if (appModule->getNedTypeName() == "TODAgentApp"){
-//                    carla_api_base::init_agent agent;
-//                    agent.agent_id = elem.first; // The same id of actor
-//                    agent.agent_configuration = appModule->par("agentConfiguration").str();
-//                    agentList.push_back(agent);
-//                }
-//            }
-//        }
+
         item.agents = agentList;
         actorList.push_back(item);
     }
@@ -119,7 +121,8 @@ void CarlaCommunicationManager::initializeCarla(){
     EV << jsonMsg.dump() << endl;
     sendToCarla(jsonMsg);
     // I expect to receive INIT_COMPLETE message
-    carla_api::init_completed response = receiveFromCarla<carla_api::init_completed>();
+    carla_api::init_completed response;
+    receiveFromCarla<carla_api::init_completed>(&response);
     // Carla informs about the intial timestamp, so I schedule the first similation step at that timestamp
     EV << "Initialization completed" << response.payload.initial_timestamp <<  endl;
     //
@@ -136,7 +139,8 @@ void CarlaCommunicationManager::doSimulationTimeStep(){
     json jsonMsg = msg;
     sendToCarla(jsonMsg);
     // I expect updated_postion message
-    carla_api::updated_postion response = receiveFromCarla<carla_api::updated_postion>();
+    carla_api::updated_postion response;
+    receiveFromCarla<carla_api::updated_postion>(& response);
 
     //Update position of all nodes in response
     for(auto actor : response.payload.actors){
@@ -186,7 +190,8 @@ string CarlaCommunicationManager::getActorStatus(string actorId){
     json jsonMsg = msg;
     sendToCarla(jsonMsg);
     // I expect VEHICLE_STATUS
-    carla_api::vehicle_status response = receiveFromCarla<carla_api::vehicle_status>();
+    carla_api::vehicle_status response;
+    receiveFromCarla<carla_api::vehicle_status>(& response);
 
     return response.payload.status_id;
 }
@@ -202,13 +207,14 @@ string CarlaCommunicationManager::computeInstruction(string actorId, string stat
     json jsonMsg = msg;
     sendToCarla(jsonMsg);
     // I expect INSTRUCTION
-    carla_api::instruction response = receiveFromCarla<carla_api::instruction>();
+    carla_api::instruction response;
+    receiveFromCarla<carla_api::instruction>(&response);
 
     return response.payload.instruction_id;
 }
 
 void CarlaCommunicationManager::applyInstruction(string actorId, string instructionId){
-    EV_INFO << "Contact Carla for applyingg the instruction id" << endl;
+    EV_INFO << "Contact Carla for applying the instruction id" << endl;
     carla_api::apply_instruction msg;
     msg.payload.actor_id = actorId;
     msg.payload.instruction_id = instructionId;
@@ -217,7 +223,8 @@ void CarlaCommunicationManager::applyInstruction(string actorId, string instruct
     json jsonMsg = msg;
     sendToCarla(jsonMsg);
     // I expect OK
-    carla_api::ok response = receiveFromCarla<carla_api::ok>();
+    carla_api::ok response;
+    receiveFromCarla<carla_api::ok>(&response);
 
 
 }

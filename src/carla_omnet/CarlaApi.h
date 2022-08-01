@@ -107,8 +107,9 @@ namespace carla_api{
     struct init_completed {
         std::string message_type = "INIT_COMPLETED";
         carla_api_payload::init_completed payload;
+        bool simulation_finished;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_completed, message_type, payload)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_completed, message_type, payload, simulation_finished)
 
 
     /* OMNET --> CARLA*/
@@ -124,8 +125,9 @@ namespace carla_api{
     struct updated_postion {
         std::string message_type = "UPDATED_POSITIONS";
         carla_api_payload::updated_position payload;
+        bool simulation_finished;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(updated_postion, message_type, payload)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(updated_postion, message_type, payload, simulation_finished)
 
 
     /* OMNET --> CARLA*/
@@ -141,8 +143,9 @@ namespace carla_api{
     struct vehicle_status {
         std::string message_type = "ACTOR_STATUS";
         carla_api_payload::vechile_status payload;
+        bool simulation_finished;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_status, message_type, payload)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(vehicle_status, message_type, payload, simulation_finished)
 
 
     /* OMNET --> CARLA*/
@@ -158,8 +161,9 @@ namespace carla_api{
     struct instruction {
         std::string message_type = "INSTRUCTION";
         carla_api_payload::vehicle_instruction payload;
+        bool simulation_finished;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(instruction, message_type, payload)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(instruction, message_type, payload, simulation_finished)
 
 
     /* OMNET --> CARLA*/
@@ -174,7 +178,8 @@ namespace carla_api{
 
     struct ok {
         std::string message_type = "OK";
+        bool simulation_finished;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ok, message_type)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ok, message_type, simulation_finished)
 
 }

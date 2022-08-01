@@ -49,6 +49,7 @@ protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
     virtual void handleMessage(cMessage *msg) override;
+    virtual void finish() override;
 
 private:
     void connect();
@@ -58,7 +59,7 @@ private:
 
     void sendToCarla(json msg);
 
-    template<typename T> T receiveFromCarla();
+    template<typename T> void receiveFromCarla(T *v);
 
     bool connection;
     string protocol;
