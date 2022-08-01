@@ -19,7 +19,8 @@ simple TODCarApp like IApp
         @signal[packetReceived](type=inet::Packet);
         @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);
         @statistic[throughput](title="throughput"; unit=bps; source="throughput(packetReceived)"; record=vector);
-        
+        @statistic[packetReceivedDelay](title="packets received delay"; source=weightedMeanPerGroup(groupRegionsPerPacket(lifeTimePerRegion(packetReceived))); record=vector; interpolationmode=none);
+        @statistic[instructionDelay](title="instruction delay"; source =instructionDelay(packetReceived); record=vector,stats);
         
     gates:
         input socketIn;

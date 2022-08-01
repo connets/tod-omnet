@@ -24,6 +24,19 @@ using namespace inet;
 
 Define_Module(TODCarApp);
 
+
+
+void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    simtime_t statusCrationTime = packet->peekData<TodInstructionMessage>()->getStatusCrationTime();
+    auto rtt = simTime() - statusCrationTime;
+
+    fire(this, simTime(), rtt,  details );
+
+}
+
+
+
 TODCarApp::~TODCarApp()
 {
     socket.destroy();

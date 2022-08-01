@@ -43,6 +43,7 @@ class TodStatusUpdateMessage extends TODMessage{
 
 class TodInstructionMessage extends TODMessage{
     messageType = INSTRUCTION;
+    simtime_t statusCrationTime;
 	string actorId;
 	string instructionId;
 }

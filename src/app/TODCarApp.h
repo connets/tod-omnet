@@ -16,8 +16,22 @@
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
 
 #include "../carla_omnet/CarlaCommunicationManager.h"
+#include "messages/TodMessages_m.h"
+//#include "utils/InstructionDelayResultFilter.h"
 using namespace omnetpp;
 using namespace inet;
+
+
+class InstructionDelayResultFiter : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
+
+Register_ResultFilter("instructionDelay", InstructionDelayResultFiter);
+
+
+
+
 /**
  * UDP application. See NED for more info.
  */

@@ -39,7 +39,7 @@ protected:
     virtual void handleMessage(cMessage* msg) override;
 
     //handle application logic
-    virtual void handleStatusUpdateMessage(const char *actorId, const char *statusId, L3Address srcAddr, int srcPort);
+    virtual void handleStatusUpdateMessage(Packet *packet);//Statconst char *actorId, const char *statusId, L3Address srcAddr, int srcPort);
 
 
     /*UDP logic*/

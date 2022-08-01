@@ -87,7 +87,13 @@ void TODAgentApp::sendPacket(Packet *packet, L3Address address, int port){
     numSent++;
 }
 
-void TODAgentApp::handleStatusUpdateMessage(const char* actorId, const char* statusId, L3Address srcAddr, int srcPort){
+void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
+
+    auto actorId = statusPacket->peekData<TodStatusUpdateMessage>()->getActorId();
+    auto statusId = statusPacket->peekData<TodStatusUpdateMessage>()->getStatusId();
+    auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
+    auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
+    auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
     EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
     auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
 
@@ -97,12 +103,13 @@ void TODAgentApp::handleStatusUpdateMessage(const char* actorId, const char* sta
     data->setChunkLength(B(par("instructionMessageLength")));
     data->setActorId(actorId);
     data->setInstructionId(instructionId.c_str());
+    data->setStatusCrationTime(statusCreationTime);
     auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
     creationTimeTag->setCreationTime(simTime()); // store current time
 
     packet->insertAtBack(data);
 
-    sendPacket(packet, srcAddr, srcPort);
+    sendPacket(packet, srcAddress, srcPort);
 }
 
 
@@ -110,11 +117,7 @@ void TODAgentApp::processPacket(Packet *packet){
     if (packet->hasData<TODMessage>()){
         if (packet->peekData<TODMessage>()->getMessageType() == TODMessageType::STATUS){
             //CARLA apply instruction
-            auto actorId = packet->peekData<TodStatusUpdateMessage>()->getActorId();
-            auto instructionId = packet->peekData<TodStatusUpdateMessage>()->getStatusId();
-            auto srcAddress = packet->getTag<L3AddressInd>()->getSrcAddress();
-            auto srcPort = packet->getTag<L4PortInd>()->getSrcPort();
-            handleStatusUpdateMessage(actorId, instructionId, srcAddress, srcPort);
+            handleStatusUpdateMessage(packet);
         }
         else{
             EV_WARN << "Received an unexpected TOD Message " <<  packet->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
