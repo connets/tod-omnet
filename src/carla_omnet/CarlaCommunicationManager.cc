@@ -45,7 +45,6 @@ template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v){
 
     if (j["simulation_finished"].get<bool>()){
         endSimulation();
-        EV << "SIM ENDED" <<endl;
     }
     //return j.get<T>();
 }
@@ -112,7 +111,8 @@ void CarlaCommunicationManager::initializeCarla(){
     carla_api::init msg;
     msg.payload.carla_world_configuration = par("carlaConfiguration").str();
     msg.payload.carla_timestep = simulationTimeStep;
-    msg.payload.seed = 0; //TODO from config
+    msg.payload.seed = stoi(getEnvir()->getConfigEx()->getVariable(CFGVAR_SEEDSET)); //TODO from config
+    msg.payload.run_id = getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNID);
     msg.payload.actors = actorList;
     msg.timestamp = simTime().dbl();
 
