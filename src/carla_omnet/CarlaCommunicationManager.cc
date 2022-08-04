@@ -157,7 +157,7 @@ void CarlaCommunicationManager::doSimulationTimeStep(){
 void CarlaCommunicationManager::connect(){
     this->context = zmq::context_t {1};
     this->socket = zmq::socket_t{context, zmq::socket_type::req};
-    int timeout_ms = 30000;
+    int timeout_ms = par("communicationTimeoutms");
     this->socket.setsockopt(ZMQ_RCVTIMEO, timeout_ms); // set timeout to value of timeout_ms
     this->socket.setsockopt(ZMQ_SNDTIMEO, timeout_ms); // set timeout to value of timeout_ms
     EV_INFO << "CarlaCommunicationManagerLog " << "Finish initialize" << endl;

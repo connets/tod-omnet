@@ -8,7 +8,7 @@
 // The above files and the present reference are part of the software itself, 
 // and cannot be removed from it.
 // 
-package tod_network.simulations;
+package tod_network.simulations.networks;
 //import org.carla_omnet.CarlaCommunicationManager;
 
 import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
@@ -34,7 +34,8 @@ network TODNet
 {
     parameters:
         int numUe = default(1);
-        @display("i=block/network2;bgb=1000,1000;bgi=background/pisa");
+        double bitErrorRate = default(0);
+        @display("i=block/network2;bgb=1000,1000;bgi=Town01.jpg");
     submodules:
         channelControl: LteChannelControl {
             @display("p=50,25;is=s");
@@ -61,15 +62,15 @@ network TODNet
             @display("p=527.35,116.9125");
         }
         gnb: gNodeB {
-            @display("p=726.35,277.35626;is=vl");
+            @display("p=210.84,435.736;is=vl");
         }
         car: CarlaCar {
             @display("p=628.09375,411.68124");
         }
-        
+
         carlaCommunicationManager: CarlaCommunicationManager;
     connections:
-        server.pppg++ <--> Eth10G <--> router.pppg++;
+        server.pppg++ <--> Eth10G {  ber = parent.bitErrorRate; } <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;
         upf.pppg++ <--> Eth10G <--> gnb.ppp;
 
