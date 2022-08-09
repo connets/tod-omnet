@@ -14,6 +14,7 @@ package tod_network.simulations.networks;
 import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
 import inet.networklayer.ipv4.RoutingTableRecorder;
 import inet.node.ethernet.Eth10G;
+import inet.node.ethernet.Eth100M;
 import inet.node.inet.Router;
 import inet.node.inet.StandardHost;
 import simu5g.common.binder.Binder;
@@ -34,6 +35,7 @@ network TODNetTown4
 {
     parameters:
         int numUe = default(1);
+        bool withBgBackhaul = default(false);
         double bitErrorRate = default(0);
         @display("i=block/network2;p=-600,-500;b=100,100,rect");
     submodules:
@@ -78,15 +80,21 @@ network TODNetTown4
             @display("p=420,400");
         }
         car: CarlaCar {
-            @display("p=628.09375,411.68124");
+            @display("p=13,-318");
         }
-
         carlaCommunicationManager: CarlaCommunicationManager {
             @display("p=801.19196,901.592");
         }
+
+        bgBhClient: StandardHost if withBgBackhaul {
+            @display("p=771,291");
+        }
+
     connections:
-        server.pppg++ <--> Eth10G {  ber = parent.bitErrorRate; } <--> router.pppg++;
+        server.pppg++ <--> Eth100M {  ber = parent.bitErrorRate; } <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;
+        bgBhClient.ethg++ <--> Eth10G <--> router.ethg++;
+
         upf.pppg++ <--> Eth10G <--> gnb1.ppp;
         upf.pppg++ <--> Eth10G <--> gnb2.ppp;
         upf.pppg++ <--> Eth10G <--> gnb3.ppp;
