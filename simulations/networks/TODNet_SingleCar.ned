@@ -65,7 +65,7 @@ network TODNet
             @display("p=210.84,435.736;is=vl");
         }
         car: CarlaCar {
-            @display("p=628.09375,411.68124");
+            @display("p=819.264,630.51196");
         }
 
         carlaCommunicationManager: CarlaCommunicationManager;

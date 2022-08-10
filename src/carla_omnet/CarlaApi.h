@@ -48,8 +48,9 @@ namespace carla_api_payload{
 
     struct init_completed{
         double initial_timestamp;
+        std::list<carla_api_base::node_position> actors;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_completed, initial_timestamp)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init_completed, initial_timestamp, actors)
 
 
     struct simulation_step{

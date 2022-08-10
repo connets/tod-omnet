@@ -125,12 +125,12 @@ void CarlaCommunicationManager::initializeCarla(){
     receiveFromCarla<carla_api::init_completed>(&response);
     // Carla informs about the intial timestamp, so I schedule the first similation step at that timestamp
     EV << "Initialization completed" << response.payload.initial_timestamp <<  endl;
+    updateNodesPosition(response.payload.actors);
     //
     initial_timestamp = simTime() + response.payload.initial_timestamp;
     // schedule
     scheduleAt(simTime() + response.payload.initial_timestamp, simulationTimeStepEvent);
 }
-
 
 void CarlaCommunicationManager::doSimulationTimeStep(){
     carla_api::simulation_step msg;
@@ -143,15 +143,20 @@ void CarlaCommunicationManager::doSimulationTimeStep(){
     receiveFromCarla<carla_api::updated_postion>(& response);
 
     //Update position of all nodes in response
-    for(auto actor : response.payload.actors){
-        EV << "Position" << actor.position <<endl;
-        Coord position = Coord(actor.position[0], actor.position[1], actor.position[2]);
-        Coord velocity = Coord(actor.velocity[0],actor.velocity[1],actor.velocity[2]);
-        Quaternion rotation = Quaternion(EulerAngles(rad(actor.rotation[0]),rad(actor.rotation[1]),rad(actor.rotation[2])));
-        modulesToTrack[actor.actor_id]->nextPosition(position, velocity, rotation);
-    }
 
+    updateNodesPosition(response.payload.actors);
 }
+
+void CarlaCommunicationManager::updateNodesPosition(std::list<carla_api_base::node_position> actors){
+    for(auto actor : actors){
+            EV << "Position" << actor.position <<endl;
+            Coord position = Coord(actor.position[0], actor.position[1], actor.position[2]);
+            Coord velocity = Coord(actor.velocity[0],actor.velocity[1],actor.velocity[2]);
+            Quaternion rotation = Quaternion(EulerAngles(rad(actor.rotation[0]),rad(actor.rotation[1]),rad(actor.rotation[2])));
+            modulesToTrack[actor.actor_id]->nextPosition(position, velocity, rotation);
+        }
+}
+
 
 
 void CarlaCommunicationManager::connect(){

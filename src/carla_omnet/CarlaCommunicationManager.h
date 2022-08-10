@@ -56,6 +56,7 @@ private:
     void doSimulationTimeStep();
     void initializeCarla();
     void findModulesToTrack();
+    void updateNodesPosition(std::list<carla_api_base::node_position> actor);
 
     void sendToCarla(json msg);
 
