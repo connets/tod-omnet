@@ -112,7 +112,7 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
     auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
     EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
-    delete statusPacket;
+    //delete statusPacket;
     auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
 
     auto packet = new Packet("Instruction");
