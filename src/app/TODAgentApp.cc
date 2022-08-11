@@ -25,14 +25,11 @@ using namespace inet;
 
 Define_Module(TODAgentApp);
 
-TODAgentApp::~TODAgentApp()
-{
-    socket.destroy();
-}
+TODAgentApp::~TODAgentApp(){}
 
 void TODAgentApp::initialize(int stage)
 {
-    cModule::initialize(stage);
+    ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
         agentId = par("agentId").str();
         carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
@@ -41,24 +38,46 @@ void TODAgentApp::initialize(int stage)
     }
 
 
-    if (stage == INITSTAGE_APPLICATION_LAYER){
-        L3Address localAddress;
-        L3AddressResolver().tryResolve(par("localAddress"), localAddress);
-        int localPort = par("localPort");
-        socket.setOutputGate(gate("socketOut"));
-        socket.bind(localAddress, localPort);
-        socket.setCallback(this);
-    }
+    //if (stage == INITSTAGE_APPLICATION_LAYER){}
 }
 
 
-void TODAgentApp::handleMessage(cMessage* msg){
+void TODAgentApp::handleMessageWhenUp(cMessage* msg){
     if (socket.belongsToSocket(msg)){
         socket.processMessage(msg);
     }
 
 }
 
+void TODAgentApp::refreshDisplay() const{}
+
+void TODAgentApp::finish()
+{
+    ApplicationBase::finish();
+}
+
+void TODAgentApp::handleStartOperation(LifecycleOperation *operation)
+{
+    L3Address localAddress;
+    L3AddressResolver().tryResolve(par("localAddress"), localAddress);
+    int localPort = par("localPort");
+    socket.setOutputGate(gate("socketOut"));
+    socket.bind(localAddress, localPort);
+    socket.setCallback(this);
+}
+
+
+void TODAgentApp::handleStopOperation(LifecycleOperation *operation)
+{
+    socket.close();
+}
+
+void TODAgentApp::handleCrashOperation(LifecycleOperation *operation)
+{
+    if (operation->getRootModule() != getContainingNode(this)) // closes socket when the application crashed only
+        socket.destroy(); // TODO  in real operating systems, program crash detected by OS and OS closes sockets of crashed programs.
+    socket.setCallback(nullptr);
+}
 
 
 void TODAgentApp::socketDataArrived(UdpSocket *socket, Packet *packet){
@@ -77,9 +96,7 @@ void TODAgentApp::socketErrorArrived(UdpSocket *socket, Indication *indication){
 }
 
 
-void TODAgentApp::socketClosed(UdpSocket *socket){
-
-}
+void TODAgentApp::socketClosed(UdpSocket *socket){}
 
 void TODAgentApp::sendPacket(Packet *packet, L3Address address, int port){
     emit(packetSentSignal, packet);
@@ -95,6 +112,7 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
     auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
     EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
+    //delete statusPacket;
     auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
 
     auto packet = new Packet("Instruction");
@@ -127,11 +145,11 @@ void TODAgentApp::processPacket(Packet *packet){
         EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(packet) <<endl;
     }
     //pk->
-//{
-////    const auto& received_payload = pk->peekData<TODMessage>();
-////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
-////    emit(packetReceivedSignal, pk);
-////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
-////    delete pk;
-////    numReceived++;
+    //{
+    ////    const auto& received_payload = pk->peekData<TODMessage>();
+    ////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
+    ////    emit(packetReceivedSignal, pk);
+    ////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
+    ////    delete pk;
+    ////    numReceived++;
 }

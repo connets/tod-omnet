@@ -20,7 +20,7 @@ CarlaCommunicationManager::CarlaCommunicationManager(){
 
 }
 CarlaCommunicationManager::~CarlaCommunicationManager(){
-    delete simulationTimeStepEvent;
+    cancelAndDelete(simulationTimeStepEvent);
 }
 
 

@@ -32,20 +32,18 @@ void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_c
     auto rtt = simTime() - statusCrationTime;
 
     fire(this, simTime(), rtt,  details );
-
 }
 
 
 
 TODCarApp::~TODCarApp()
 {
-    socket.destroy();
-    delete updateStatusSelfMessage;
+    cancelAndDelete(updateStatusSelfMessage);
 }
 
 void TODCarApp::initialize(int stage)
 {
-    cModule::initialize(stage);
+    ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
         actorId = getParentModule()->getName();
         carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
@@ -56,32 +54,58 @@ void TODCarApp::initialize(int stage)
     }
 
 
-    if (stage == INITSTAGE_APPLICATION_LAYER){
-        L3AddressResolver().tryResolve(par("destAddress"), destAddress);
-        destPort = par("destPort");
-        socket.setOutputGate(gate("socketOut"));
-        socket.bind(destPort);
-        socket.setTos(0b00011100);
-        socket.setCallback(this);
-        // wait statusUpdateInterval more before start to let Carla be ready
-        simtime_t firstStatusUpdate = simTime()+ carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateInterval;
-
-        EV_INFO << "First update will be at: " << firstStatusUpdate << endl;
-
-        scheduleAt(firstStatusUpdate, updateStatusSelfMessage);
-    }
+    //if (stage == INITSTAGE_APPLICATION_LAYER){}
 }
 
-void TODCarApp::handleMessage(cMessage* msg){
+void TODCarApp::refreshDisplay() const{}
+
+void TODCarApp::finish()
+{
+    ApplicationBase::finish();
+}
+
+void TODCarApp::handleStartOperation(LifecycleOperation *operation)
+{
+
+    L3AddressResolver().tryResolve(par("destAddress"), destAddress);
+    destPort = par("destPort");
+
+    socket.setOutputGate(gate("socketOut"));
+    socket.bind(destPort);
+    socket.setTos(0b00011100);
+    socket.setCallback(this);
+
+    // wait statusUpdateInterval more before start to let Carla be ready
+    simtime_t firstStatusUpdate = simTime() + carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateInterval;
+
+    EV_INFO << "First update will be at: " << firstStatusUpdate << endl;
+
+    scheduleAt(firstStatusUpdate, updateStatusSelfMessage);
+}
+
+
+void TODCarApp::handleStopOperation(LifecycleOperation *operation)
+{
+    socket.close();
+}
+
+void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
+{
+    if (operation->getRootModule() != getContainingNode(this)) // closes socket when the application crashed only
+        socket.destroy(); // TODO  in real operating systems, program crash detected by OS and OS closes sockets of crashed programs.
+    socket.setCallback(nullptr);
+}
+
+
+void TODCarApp::handleMessageWhenUp(cMessage* msg){
+
     if (msg->isSelfMessage()){
         if (msg == updateStatusSelfMessage){
             sendUpdateStatusPacket();
             scheduleAt(simTime()+statusUpdateInterval, msg);
         }
-    }else{
-        if(socket.belongsToSocket(msg)){
+    }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);
-        }
     }
 
 }
@@ -120,14 +144,10 @@ void TODCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){
 }
 
 
-void TODCarApp::socketErrorArrived(UdpSocket *socket, Indication *indication){
-
-}
+void TODCarApp::socketErrorArrived(UdpSocket *socket, Indication *indication){}
 
 
-void TODCarApp::socketClosed(UdpSocket *socket){
-
-}
+void TODCarApp::socketClosed(UdpSocket *socket){}
 
 void TODCarApp::sendPacket(Packet *packet){
     emit(packetSentSignal, packet);
