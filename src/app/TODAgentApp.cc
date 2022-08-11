@@ -25,11 +25,7 @@ using namespace inet;
 
 Define_Module(TODAgentApp);
 
-TODAgentApp::~TODAgentApp()
-{
-    EV << "*****" << endl;
-    //socket.close();
-}
+TODAgentApp::~TODAgentApp(){}
 
 void TODAgentApp::initialize(int stage)
 {
@@ -42,10 +38,7 @@ void TODAgentApp::initialize(int stage)
     }
 
 
-    if (stage == INITSTAGE_APPLICATION_LAYER){
-
-
-    }
+    //if (stage == INITSTAGE_APPLICATION_LAYER){}
 }
 
 
@@ -103,9 +96,7 @@ void TODAgentApp::socketErrorArrived(UdpSocket *socket, Indication *indication){
 }
 
 
-void TODAgentApp::socketClosed(UdpSocket *socket){
-
-}
+void TODAgentApp::socketClosed(UdpSocket *socket){}
 
 void TODAgentApp::sendPacket(Packet *packet, L3Address address, int port){
     emit(packetSentSignal, packet);
@@ -154,11 +145,11 @@ void TODAgentApp::processPacket(Packet *packet){
         EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(packet) <<endl;
     }
     //pk->
-//{
-////    const auto& received_payload = pk->peekData<TODMessage>();
-////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
-////    emit(packetReceivedSignal, pk);
-////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
-////    delete pk;
-////    numReceived++;
+    //{
+    ////    const auto& received_payload = pk->peekData<TODMessage>();
+    ////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
+    ////    emit(packetReceivedSignal, pk);
+    ////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
+    ////    delete pk;
+    ////    numReceived++;
 }

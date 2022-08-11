@@ -32,14 +32,12 @@ void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_c
     auto rtt = simTime() - statusCrationTime;
 
     fire(this, simTime(), rtt,  details );
-
 }
 
 
 
 TODCarApp::~TODCarApp()
 {
-
     cancelAndDelete(updateStatusSelfMessage);
 }
 
@@ -56,12 +54,7 @@ void TODCarApp::initialize(int stage)
     }
 
 
-    if (stage == INITSTAGE_APPLICATION_LAYER){
-        L3AddressResolver().tryResolve(par("destAddress"), destAddress);
-        destPort = par("destPort");
-
-
-    }
+    //if (stage == INITSTAGE_APPLICATION_LAYER){}
 }
 
 void TODCarApp::refreshDisplay() const{}
@@ -73,13 +66,16 @@ void TODCarApp::finish()
 
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 {
+    L3AddressResolver().tryResolve(par("destAddress"), destAddress);
+    destPort = par("destPort");
+
     socket.setOutputGate(gate("socketOut"));
     socket.bind(destPort);
     socket.setTos(0b00011100);
     socket.setCallback(this);
 
     // wait statusUpdateInterval more before start to let Carla be ready
-    simtime_t firstStatusUpdate = simTime()+ carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateInterval;
+    simtime_t firstStatusUpdate = simTime() + carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateInterval;
 
     EV_INFO << "First update will be at: " << firstStatusUpdate << endl;
 
@@ -100,18 +96,14 @@ void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
 }
 
 
-
-
 void TODCarApp::handleMessageWhenUp(cMessage* msg){
     if (msg->isSelfMessage()){
         if (msg == updateStatusSelfMessage){
             sendUpdateStatusPacket();
             scheduleAt(simTime()+statusUpdateInterval, msg);
         }
-    }else{
-        if(socket.belongsToSocket(msg)){
+    }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);
-        }
     }
 
 }
@@ -150,14 +142,10 @@ void TODCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){
 }
 
 
-void TODCarApp::socketErrorArrived(UdpSocket *socket, Indication *indication){
-
-}
+void TODCarApp::socketErrorArrived(UdpSocket *socket, Indication *indication){}
 
 
-void TODCarApp::socketClosed(UdpSocket *socket){
-
-}
+void TODCarApp::socketClosed(UdpSocket *socket){}
 
 void TODCarApp::sendPacket(Packet *packet){
     emit(packetSentSignal, packet);
