@@ -10,6 +10,8 @@
 #include <omnetpp.h>
 #include "inet/networklayer/common/L3Address.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
+#include "inet/common/lifecycle/OperationalBase.h"
+#include "inet/applications/base/ApplicationBase.h"
 
 #include "../carla_omnet/CarlaCommunicationManager.h"
 #include "messages/TodMessages_m.h"
@@ -20,7 +22,7 @@ using namespace inet;
 /**
  * UDP application. See NED for more info.
  */
-class TODAgentApp : public cSimpleModule, public UdpSocket::ICallback
+class TODAgentApp : public ApplicationBase, public UdpSocket::ICallback
 {
 private:
     CarlaCommunicationManager* carlaCommunicationManager;
@@ -36,11 +38,16 @@ protected:
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
-    virtual void handleMessage(cMessage* msg) override;
 
     //handle application logic
     virtual void handleStatusUpdateMessage(Packet *packet);//Statconst char *actorId, const char *statusId, L3Address srcAddr, int srcPort);
+    virtual void handleMessageWhenUp(cMessage *msg) override;
+    virtual void finish() override;
+    virtual void refreshDisplay() const override;
 
+    virtual void handleStartOperation(LifecycleOperation *operation) override;
+    virtual void handleStopOperation(LifecycleOperation *operation) override;
+    virtual void handleCrashOperation(LifecycleOperation *operation) override;
 
     /*UDP logic*/
     /**
