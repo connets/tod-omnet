@@ -21,5 +21,6 @@ module CarlaCar extends NRUe
 {
     parameters:
         mobility.typename = default("CarlaInetMobility");
-    
+
+        @display("i=misc/car,,0;is=n");
 }

@@ -11,6 +11,7 @@
 package tod_network.simulations.networks;
 //import org.carla_omnet.CarlaCommunicationManager;
 
+import inet.tutorials.configurator.Eth100MLong;
 import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
 import inet.networklayer.ipv4.RoutingTableRecorder;
 import inet.node.ethernet.Eth10G;
@@ -37,6 +38,7 @@ network TODNetTown4
         int numUe = default(1);
         bool withBgBackhaul = default(false);
         double bitErrorRate = default(0);
+        double todDistance @unit(m) = default(1km)
         @display("i=block/network2;p=-600,-500;b=100,100,rect");
     submodules:
         channelControl: LteChannelControl {
@@ -80,7 +82,7 @@ network TODNetTown4
             @display("p=420,400");
         }
         car: CarlaCar {
-            @display("p=13,-318");
+            @display("p=540,330");
         }
         carlaCommunicationManager: CarlaCommunicationManager {
             @display("p=801.19196,901.592");
@@ -91,9 +93,11 @@ network TODNetTown4
         }
 
     connections:
-        server.pppg++ <--> Eth100M {  ber = parent.bitErrorRate; } <--> router.pppg++;
+        server.pppg++ <--> Eth100M {  ber = parent.bitErrorRate; length= parent.todDistance; } <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;
-        bgBhClient.ethg++ <--> Eth10G <--> router.ethg++;
+        if withBgBackhaul {
+            bgBhClient.ethg++ <--> Eth10G <--> router.ethg++;
+        }
 
         upf.pppg++ <--> Eth10G <--> gnb1.ppp;
         upf.pppg++ <--> Eth10G <--> gnb2.ppp;
