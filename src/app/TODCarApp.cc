@@ -43,7 +43,7 @@ TODCarApp::~TODCarApp()
 
 void TODCarApp::initialize(int stage)
 {
-    cModule::initialize(stage);
+    ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
         actorId = getParentModule()->getName();
         carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
@@ -66,6 +66,7 @@ void TODCarApp::finish()
 
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 {
+
     L3AddressResolver().tryResolve(par("destAddress"), destAddress);
     destPort = par("destPort");
 
@@ -97,6 +98,7 @@ void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
 
 
 void TODCarApp::handleMessageWhenUp(cMessage* msg){
+
     if (msg->isSelfMessage()){
         if (msg == updateStatusSelfMessage){
             sendUpdateStatusPacket();

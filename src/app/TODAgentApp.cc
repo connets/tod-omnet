@@ -29,7 +29,7 @@ TODAgentApp::~TODAgentApp(){}
 
 void TODAgentApp::initialize(int stage)
 {
-    cModule::initialize(stage);
+    ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
         agentId = par("agentId").str();
         carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
