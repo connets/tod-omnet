@@ -36,6 +36,7 @@ network TODNetTown4
 {
     parameters:
         int numUe = default(1);
+        int numBgUesIndex = default(0);
         bool withBgBackhaul = default(false);
         double bitErrorRate = default(0);
         double todDistance @unit(m) = default(1km)

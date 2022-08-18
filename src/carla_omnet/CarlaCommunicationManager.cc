@@ -54,8 +54,10 @@ template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v, dou
     switch (j["simulation_status"].get<int>()){
     case SIM_STATUS_FINISHED:
         endSimulation();
+        break;
     case SIM_STATUS_ERROR:
         throw runtime_error("Communication error. Wrong message sequence!");
+        break;
     default:
         *v = j.get<T>();
 
@@ -228,7 +230,8 @@ string CarlaCommunicationManager::computeInstruction(string actorId, string stat
     sendToCarla(jsonMsg);
     // I expect INSTRUCTION
     carla_api::instruction response;
-    receiveFromCarla<carla_api::instruction>(&response);
+    //10x is for safety, because CARLA before stops the simulation and then sends the response
+    receiveFromCarla<carla_api::instruction>(&response, 10);
 
     return response.payload.instruction_id;
 }
