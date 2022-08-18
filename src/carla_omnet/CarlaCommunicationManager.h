@@ -60,7 +60,7 @@ private:
 
     void sendToCarla(json msg);
 
-    template<typename T> void receiveFromCarla(T *v);
+    template<typename T> void receiveFromCarla(T *v,  double timeoutFactor = 1);
 
     bool connection;
     string protocol;
@@ -71,7 +71,7 @@ private:
     int port;
     zmq::context_t context;
     zmq::socket_t socket;
-
+    int timeout_ms;
     cMessage *simulationTimeStepEvent =  new cMessage("simulationTimeStep");
     map<string,CarlaInetMobility*> modulesToTrack = map<string,CarlaInetMobility*>();
 };

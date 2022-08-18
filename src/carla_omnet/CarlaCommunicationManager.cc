@@ -1,3 +1,5 @@
+#include <stdexcept>
+
 #include "CarlaCommunicationManager.h"
 #include "inet/applications/base/ApplicationPacket_m.h"
 #include "inet/common/ModuleAccess.h"
@@ -35,16 +37,28 @@ void CarlaCommunicationManager::sendToCarla(json jsonMsg){
     socket.send(zmq::buffer(jsonMsg.dump()), zmq::send_flags::none);
 }
 
-template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v){
+template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v, double timeoutFactor){
+    // set actual timeout
+    int recv_timeout_ms =  max(1000, int(timeout_ms * timeoutFactor));
+    this->socket.setsockopt(ZMQ_RCVTIMEO, recv_timeout_ms);
+
     zmq::message_t reply{};
+
+    //assert(!socket.recv(reply, zmq::recv_flags::none));
     if (!socket.recv(reply, zmq::recv_flags::none)){
-        EV_ERROR << "receive error"<<endl;
+        throw runtime_error("CALRA Timeout");
+        //EV_ERROR << "receive error"<<endl;
     }
     json j = json::parse(reply.to_string());
-    *v = j.get<T>();
 
-    if (j["simulation_finished"].get<bool>()){
+    switch (j["simulation_status"].get<int>()){
+    case SIM_STATUS_FINISHED:
         endSimulation();
+    case SIM_STATUS_ERROR:
+        throw runtime_error("Communication error. Wrong message sequence!");
+    default:
+        *v = j.get<T>();
+
     }
     //return j.get<T>();
 }
@@ -57,6 +71,7 @@ void CarlaCommunicationManager::initialize(int stage)
         protocol = par("protocol").stringValue();
         host = par("host").stringValue();
         port = par("port");
+        timeout_ms = par("communicationTimeoutms");
         simulationTimeStep = par("simulationTimeStep");
         findModulesToTrack();
         connect();
@@ -122,7 +137,7 @@ void CarlaCommunicationManager::initializeCarla(){
     sendToCarla(jsonMsg);
     // I expect to receive INIT_COMPLETE message
     carla_api::init_completed response;
-    receiveFromCarla<carla_api::init_completed>(&response);
+    receiveFromCarla<carla_api::init_completed>(&response, 100.0);
     // Carla informs about the intial timestamp, so I schedule the first similation step at that timestamp
     EV << "Initialization completed" << response.payload.initial_timestamp <<  endl;
     updateNodesPosition(response.payload.actors);
@@ -149,12 +164,12 @@ void CarlaCommunicationManager::doSimulationTimeStep(){
 
 void CarlaCommunicationManager::updateNodesPosition(std::list<carla_api_base::node_position> actors){
     for(auto actor : actors){
-            EV << "Position" << actor.position <<endl;
-            Coord position = Coord(actor.position[0], actor.position[1], actor.position[2]);
-            Coord velocity = Coord(actor.velocity[0],actor.velocity[1],actor.velocity[2]);
-            Quaternion rotation = Quaternion(EulerAngles(rad(actor.rotation[0]),rad(actor.rotation[1]),rad(actor.rotation[2])));
-            modulesToTrack[actor.actor_id]->nextPosition(position, velocity, rotation);
-        }
+        EV << "Position" << actor.position <<endl;
+        Coord position = Coord(actor.position[0], actor.position[1], actor.position[2]);
+        Coord velocity = Coord(actor.velocity[0],actor.velocity[1],actor.velocity[2]);
+        Quaternion rotation = Quaternion(EulerAngles(rad(actor.rotation[0]),rad(actor.rotation[1]),rad(actor.rotation[2])));
+        modulesToTrack[actor.actor_id]->nextPosition(position, velocity, rotation);
+    }
 }
 
 
@@ -162,7 +177,7 @@ void CarlaCommunicationManager::updateNodesPosition(std::list<carla_api_base::no
 void CarlaCommunicationManager::connect(){
     this->context = zmq::context_t {1};
     this->socket = zmq::socket_t{context, zmq::socket_type::req};
-    int timeout_ms = par("communicationTimeoutms");
+
     this->socket.setsockopt(ZMQ_RCVTIMEO, timeout_ms); // set timeout to value of timeout_ms
     this->socket.setsockopt(ZMQ_SNDTIMEO, timeout_ms); // set timeout to value of timeout_ms
     EV_INFO << "CarlaCommunicationManagerLog " << "Finish initialize" << endl;
