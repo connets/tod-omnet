@@ -31,7 +31,7 @@ void TODAgentApp::initialize(int stage)
 {
     ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
-        agentId = par("agentId").str();
+        agentId = par("agentId").stdstringValue();
         carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
                 getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
 
@@ -104,30 +104,60 @@ void TODAgentApp::sendPacket(Packet *packet, L3Address address, int port){
     numSent++;
 }
 
+
+bool TODAgentApp::reassembleStatusPacket(string actorId, string statusId, int numFragments){
+    auto key = pair<string,string>(actorId, statusId);
+    auto it = reassembleStatusPacketsMap.find(key);
+    if(it == reassembleStatusPacketsMap.end()){
+        // new packet
+        int value = numFragments - 1;
+        reassembleStatusPacketsMap.insert(pair<pair<string, string>,int>(key,value));
+        return false;
+    }
+    else {
+        // another fragment
+        if (reassembleStatusPacketsMap[key] == 1){
+            reassembleStatusPacketsMap.erase(key);
+            return true;
+        }
+        else{
+            reassembleStatusPacketsMap[key] = reassembleStatusPacketsMap[key] - 1;
+            return false;
+        }
+
+    }
+
+}
+
+
 void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
+    auto todStatusMessage = statusPacket->peekData<TodStatusUpdateMessage>();
+    auto actorId = todStatusMessage->getActorId();
+    auto statusId = todStatusMessage->getStatusId();
+    auto numFragments = todStatusMessage->getTotalFragments();
 
-    auto actorId = statusPacket->peekData<TodStatusUpdateMessage>()->getActorId();
-    auto statusId = statusPacket->peekData<TodStatusUpdateMessage>()->getStatusId();
-    auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
-    auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
-    auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
-    EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
-    //delete statusPacket;
-    auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
+    if (reassembleStatusPacket(actorId, statusId, numFragments )){
+        auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
+        auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
+        auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
+        EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
 
-    auto packet = new Packet("Instruction");
-    auto data = makeShared<TodInstructionMessage>();
-    // Data
-    data->setChunkLength(B(par("instructionMessageLength")));
-    data->setActorId(actorId);
-    data->setInstructionId(instructionId.c_str());
-    data->setStatusCrationTime(statusCreationTime);
-    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-    creationTimeTag->setCreationTime(simTime()); // store current time
+        auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
 
-    packet->insertAtBack(data);
+        auto packet = new Packet("Instruction");
+        auto data = makeShared<TodInstructionMessage>();
+        // Data
+        data->setChunkLength(B(par("instructionMessageLength").intValue()));
+        data->setActorId(actorId);
+        data->setInstructionId(instructionId.c_str());
+        data->setStatusCrationTime(statusCreationTime);
+        auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+        creationTimeTag->setCreationTime(simTime()); // store current time
 
-    sendPacket(packet, srcAddress, srcPort);
+        packet->insertAtBack(data);
+
+        sendPacket(packet, srcAddress, srcPort);
+    }
 }
 
 

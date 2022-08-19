@@ -28,6 +28,10 @@ private:
     CarlaCommunicationManager* carlaCommunicationManager;
     string agentId;
 
+    map<pair<string,string>, int> reassembleStatusPacketsMap;
+
+    bool reassembleStatusPacket(string actorId, string statusId, int numFragments); //returns true if all fragments have been received
+
 protected:
     UdpSocket socket;
     // statistics

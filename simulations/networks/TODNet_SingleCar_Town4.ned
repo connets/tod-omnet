@@ -36,8 +36,11 @@ network TODNetTown4
 {
     parameters:
         int numUe = default(1);
-        int numBgUesIndex = default(0);
+        int numBgUes = default(0);
+        int numTodBgUes = default(0);
+        
         bool withBgBackhaul = default(false);
+        
         double bitErrorRate = default(0);
         double todDistance @unit(m) = default(1km)
         @display("i=block/network2;p=-600,-500;b=100,100,rect");
@@ -85,6 +88,32 @@ network TODNetTown4
         car: CarlaCar {
             @display("p=540,330");
         }
+        
+        bgUe_1[numBgUes]: NRUe;
+        bgUeTod_1[numTodBgUes]: NRUe{
+         	@display("i=misc/car2");   
+        }
+        
+        bgUe_2[numBgUes]: NRUe;
+        bgUeTod_2[numTodBgUes]: NRUe{
+         	@display("i=misc/car2");   
+        }
+        
+        bgUe_3[numBgUes]: NRUe;
+        bgUeTod_3[numTodBgUes]: NRUe{
+         	@display("i=misc/car2");   
+        }
+        
+        bgUe_4[numBgUes]: NRUe;
+        bgUeTod_4[numTodBgUes]: NRUe{
+         	@display("i=misc/car2");   
+        }
+        
+//        for i=0..numBgUes-1 {
+//    		bgUe[0:numBgUes-1].mobility.initialX= uniform(-1000m, 1000m);
+//		}
+//        
+        
         carlaCommunicationManager: CarlaCommunicationManager {
             @display("p=801.19196,901.592");
         }
@@ -94,7 +123,7 @@ network TODNetTown4
         }
 
     connections:
-        server.pppg++ <--> Eth100M {  ber = parent.bitErrorRate; length= parent.todDistance; } <--> router.pppg++;
+        server.pppg++ <--> Eth10G {  ber = parent.bitErrorRate; length= parent.todDistance; } <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;
         if withBgBackhaul {
             bgBhClient.ethg++ <--> Eth10G <--> router.ethg++;

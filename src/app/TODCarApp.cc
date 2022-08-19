@@ -8,13 +8,18 @@
 
 #include "TODCarApp.h"
 
+#include <math.h>
+
+
 #include "inet/common/ModuleAccess.h"
 #include "inet/common/TagBase_m.h"
 #include "inet/common/TimeTag_m.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
 #include "inet/common/packet/Packet.h"
+#include "inet/common/packet/chunk/ByteCountChunk.h"
 #include "inet/networklayer/common/FragmentationTag_m.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
+#include "inet/transportlayer/udp/Udp.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
 #include "../carla_omnet/CarlaCommunicationManager.h"
 #include "messages/TodMessages_m.h"
@@ -23,8 +28,6 @@ using namespace omnetpp;
 using namespace inet;
 
 Define_Module(TODCarApp);
-
-
 
 void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
@@ -72,7 +75,7 @@ void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 
     socket.setOutputGate(gate("socketOut"));
     socket.bind(destPort);
-    socket.setTos(0b00011100);
+    //socket.setTos(0b00011100);
     socket.setCallback(this);
 
     // wait statusUpdateInterval more before start to let Carla be ready
@@ -117,18 +120,48 @@ void TODCarApp::sendUpdateStatusPacket(){
     EV_INFO << "Send status update" << endl;
     string statusId = carlaCommunicationManager->getActorStatus(actorId);
 
-    auto packet = new Packet("StatusUpdate");
-    auto data = makeShared<TodStatusUpdateMessage>();
+//    data->setChunkLength(B(1));
+//    data->setActorId(actorId);
+//    data->setStatusId(statusId.c_str());
+//    data->setTotalFragments(1);
+//    data->setFragmentNum(1);
+//
+//    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+//    creationTimeTag->setCreationTime(simTime()); // store current time
+//    packet->insertAtBack(data);
+//
+//    auto dataByte = makeShared<ByteCountChunk>(B(statusMessageLength));
+//    packet->insertAtBack(dataByte);
+//
+//    sendPacket(packet);
+
     // Data
-    data->setChunkLength(B(par("statusMessageLength")));
-    data->setActorId(actorId);
-    data->setStatusId(statusId.c_str());
-    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-    creationTimeTag->setCreationTime(simTime()); // store current time
+    int statusMessageLength = par("statusMessageLength").intValue();
+    int numFragments = std::ceil(1.0*statusMessageLength/ (UDP_MAX_MESSAGE_SIZE-10));
+    int fragmentNum = 0;
+    while (statusMessageLength>0){
+        int fragmentLength = std::min(statusMessageLength, (int) UDP_MAX_MESSAGE_SIZE-10);
+        EV_INFO << "Send status update FRAGMENT:" << fragmentLength << endl;
+        auto packet = new Packet("StatusUpdate");
+        auto data = makeShared<TodStatusUpdateMessage>();
 
-    packet->insertAtBack(data);
+        data->setChunkLength(B(fragmentLength));
+        data->setActorId(actorId);
+        data->setStatusId(statusId.c_str());
+        data->setTotalFragments(numFragments);
+        EV_INFO << "Send status update NUM FRAGMENTS: "<< fragmentNum<< "/"<< numFragments << endl;
+        data->setFragmentNum(fragmentNum);
 
-    sendPacket(packet);
+        auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+        creationTimeTag->setCreationTime(simTime()); // store current time
+        packet->insertAtBack(data);
+        sendPacket(packet);
+
+        statusMessageLength -= UDP_MAX_MESSAGE_SIZE-10;
+        fragmentNum++;
+    }
+
+
 }
 
 

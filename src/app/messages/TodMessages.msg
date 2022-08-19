@@ -37,6 +37,8 @@ class TODMessage extends FieldsChunk{
 
 class TodStatusUpdateMessage extends TODMessage{
     messageType = STATUS;
+    int totalFragments;
+    int fragmentNum;
 	string actorId;
 	string statusId;
 } 

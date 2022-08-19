@@ -70,8 +70,8 @@ void CarlaCommunicationManager::initialize(int stage)
 {
     cSimpleModule::initialize(stage);
     if (stage == INITSTAGE_LOCAL){
-        protocol = par("protocol").stringValue();
-        host = par("host").stringValue();
+        protocol = par("protocol").stdstringValue();
+        host = par("host").stdstringValue();
         port = par("port");
         timeout_ms = par("communicationTimeoutms");
         simulationTimeStep = par("simulationTimeStep");
@@ -103,9 +103,9 @@ void CarlaCommunicationManager::initializeCarla(){
         carla_api_base::init_actor item;
 
         item.actor_id = elem.first;
-        item.actor_configuration = mobilityMod->par("carlaActorType").str();
-        EV << mobilityMod->par("route") << endl;
-        item.route = mobilityMod->par("route").str();
+        item.actor_configuration = mobilityMod->par("carlaActorType").stdstringValue();
+        //EV << mobilityMod->par("route") << endl;
+        item.route = mobilityMod->par("route").stdstringValue();
         // Check if TOD application exists
         auto agentList = list<carla_api_base::init_agent>();
         //        auto nodeApplications = nodeModule->getSubmodule("app");
@@ -114,7 +114,7 @@ void CarlaCommunicationManager::initializeCarla(){
             if (strstr(submodule->getNedTypeName(),"TODCarApp") != nullptr){
                 carla_api_base::init_agent agent;
                 agent.agent_id = elem.first; // The same id of actor
-                agent.agent_configuration = submodule->par("agentConfiguration").str();
+                agent.agent_configuration = submodule->par("agentConfiguration").stdstringValue();
                 agentList.push_back(agent);
             }
             //EV << submodule->getFullName() << endl;
@@ -126,7 +126,7 @@ void CarlaCommunicationManager::initializeCarla(){
 
     // compose the message
     carla_api::init msg;
-    msg.payload.carla_world_configuration = par("carlaConfiguration").str();
+    msg.payload.carla_world_configuration = par("carlaConfiguration").stdstringValue();
     msg.payload.carla_timestep = simulationTimeStep;
     msg.payload.seed = stoi(getEnvir()->getConfigEx()->getVariable(CFGVAR_SEEDSET)); //TODO from config
     msg.payload.run_id = getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNID);
