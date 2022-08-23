@@ -35,7 +35,6 @@ RUN bash -c "source /omnetpp-6.0/setenv && (cd tod_omnet_network && make makefil
 
 CMD tod_omnet_network/out/gcc-release/src/tod_omnet_network -m -n tod_omnet_network/simulations:tod_omnet_network/src:inet4.4/examples:inet4.4/showcases:inet4.4/src:inet4.4/tests/validation:inet4.4/tests/networks:inet4.4/tutorials:Simu5G/emulation:Simu5G/simulations:Simu5G/src -l inet4.4/src/INET -l Simu5G/src/simu5g tod_omnet_network/simulations/small_set.ini -u Cmdenv -c Tod-Town4
 
-
 #RUN bash -c "source /omnetpp-6.0/setenv"# make makefile MODE=release "
 #opp_makemake -f; 
 #ln -fs /usr/share/zoneinfo/Europe/Rome /etc/localtime
