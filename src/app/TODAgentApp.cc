@@ -106,6 +106,10 @@ void TODAgentApp::sendPacket(Packet *packet, L3Address address, int port){
 
 
 bool TODAgentApp::reassembleStatusPacket(string actorId, string statusId, int numFragments){
+    if (numFragments == 1){
+        return true;
+    }
+
     auto key = pair<string,string>(actorId, statusId);
     auto it = reassembleStatusPacketsMap.find(key);
     if(it == reassembleStatusPacketsMap.end()){
