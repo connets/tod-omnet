@@ -44,11 +44,12 @@ namespace carla_api_payload{
     struct init{
         std::string carla_world_configuration;
         double carla_timestep;
+        double sim_time_limit;
         int seed;
         std::string run_id;
         std::list<carla_api_base::init_actor> actors;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init, carla_world_configuration, carla_timestep, seed ,run_id, actors)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(init, carla_world_configuration, carla_timestep, sim_time_limit, seed ,run_id, actors)
 
 
     struct init_completed{

@@ -124,11 +124,15 @@ void CarlaCommunicationManager::initializeCarla(){
         actorList.push_back(item);
     }
 
+    auto simTimeLimit = getEnvir()->getConfigEx()->getConfigValue("sim-time-limit");
+
+
     // compose the message
     carla_api::init msg;
     msg.payload.carla_world_configuration = par("carlaConfiguration").stdstringValue();
     msg.payload.carla_timestep = simulationTimeStep;
-    msg.payload.seed = stoi(getEnvir()->getConfigEx()->getVariable(CFGVAR_SEEDSET)); //TODO from config
+    msg.payload.sim_time_limit = simTimeLimit != nullptr ? stod(simTimeLimit) : -1.0 ;
+    msg.payload.seed = stoi(getEnvir()->getConfigEx()->getVariable(CFGVAR_SEEDSET));
     msg.payload.run_id = getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNID);
     msg.payload.actors = actorList;
     msg.timestamp = simTime().dbl();
