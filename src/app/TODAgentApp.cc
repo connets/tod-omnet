@@ -139,6 +139,10 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto actorId = todStatusMessage->getActorId();
     auto statusId = todStatusMessage->getStatusId();
     auto numFragments = todStatusMessage->getTotalFragments();
+    auto fragmentNum = todStatusMessage->getFragmentNum();
+
+
+    EV_INFO << "Received fragment for "<< actorId << " Status "<< statusId << "(" << fragmentNum +1<< "/" << numFragments << ")"<< endl;
 
     if (reassembleStatusPacket(actorId, statusId, numFragments )){
         auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();

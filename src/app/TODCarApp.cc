@@ -142,7 +142,7 @@ void TODCarApp::sendUpdateStatusPacket(){
     while (statusMessageLength>0){
         int fragmentLength = std::min(statusMessageLength, (int) UDP_MAX_MESSAGE_SIZE-10);
         EV_INFO << "Send status update FRAGMENT:" << fragmentLength << endl;
-        auto packet = new Packet("StatusUpdate");
+        auto packet = new Packet((string("StatusUpdate_")+statusId+"_"+ std::to_string(fragmentNum)).c_str());
         auto data = makeShared<TodStatusUpdateMessage>();
 
         data->setChunkLength(B(fragmentLength));
