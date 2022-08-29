@@ -39,7 +39,7 @@ void CarlaCommunicationManager::sendToCarla(json jsonMsg){
 
 template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v, double timeoutFactor){
     // set actual timeout
-    int recv_timeout_ms =  max(1000, int(timeout_ms * timeoutFactor));
+    int recv_timeout_ms =  max(4000, int(timeout_ms * timeoutFactor));
     this->socket.setsockopt(ZMQ_RCVTIMEO, recv_timeout_ms);
 
     zmq::message_t reply{};
@@ -52,7 +52,7 @@ template <typename T> void CarlaCommunicationManager::receiveFromCarla(T *v, dou
     json j = json::parse(reply.to_string());
 
     switch (j["simulation_status"].get<int>()){
-    case SIM_STATUS_FINISHED:
+    case SIM_STATUS_FINISHED_OK: case SIM_STATUS_FINISHED_ACCIDENT: case SIM_STATUS_FINISHED_TIME_LIMIT:
         endSimulation();
         break;
     case SIM_STATUS_ERROR:

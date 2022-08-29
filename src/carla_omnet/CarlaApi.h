@@ -3,7 +3,9 @@
 using json = nlohmann::json;
 
 #define SIM_STATUS_RUNNING 0
-#define SIM_STATUS_FINISHED 1
+#define SIM_STATUS_FINISHED_OK 1
+#define SIM_STATUS_FINISHED_ACCIDENT 2
+#define SIM_STATUS_FINISHED_TIME_LIMIT 3
 #define SIM_STATUS_ERROR -1
 
 
