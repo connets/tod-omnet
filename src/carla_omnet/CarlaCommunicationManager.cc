@@ -77,6 +77,7 @@ void CarlaCommunicationManager::initialize(int stage)
         simulationTimeStep = par("simulationTimeStep");
         findModulesToTrack();
         connect();
+
     }
 
     if (stage == INITSTAGE_SINGLE_MOBILITY){
@@ -133,7 +134,9 @@ void CarlaCommunicationManager::initializeCarla(){
     msg.payload.carla_timestep = simulationTimeStep;
     msg.payload.sim_time_limit = simTimeLimit != nullptr ? stod(simTimeLimit) : -1.0 ;
     msg.payload.seed = stoi(getEnvir()->getConfigEx()->getVariable(CFGVAR_SEEDSET));
-    msg.payload.run_id = getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNID);
+
+    msg.payload.run_id = std::string(getEnvir()->getConfigEx()->getVariable(CFGVAR_CONFIGNAME)) + "-" + std::string(getEnvir()->getConfigEx()->getVariable(CFGVAR_ITERATIONVARSF)) + "#" + std::string(getEnvir()->getConfigEx()->getVariable(CFGVAR_REPETITION));
+    //msg.payload.run_id = getEnvir()->getConfigEx()->getVariable(CFGVAR_RUNID);
     msg.payload.actors = actorList;
     msg.timestamp = simTime().dbl();
 
