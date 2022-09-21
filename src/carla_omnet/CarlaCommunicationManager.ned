@@ -7,7 +7,7 @@ simple CarlaCommunicationManager
 
         string host = default("localhost");  // server hostname
         string protocol = default("tcp");  // server hostname
-        double simulationTimeStep @unit("s") = default(5ms);
+        double simulationTimeStep @unit("s") = default(10ms);
         int port = default(5555);  // server port (-1: automatic)
         int seed = default(-1); // seed value to set in launch configuration, if missing (-1: current run number)
         string carlaConfiguration;
