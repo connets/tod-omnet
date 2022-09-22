@@ -16,7 +16,7 @@ RUN bash -c "source ./setenv ; ./configure WITH_OSG=no WITH_QTENV=no PREFER_CLAN
 
 WORKDIR /app/
 RUN git clone -b v4.4.1 https://github.com/inet-framework/inet.git inet4.4 \
-    && git clone https://github.com/Unipisa/Simu5G Simu5G \    
+    && git clone https://github.com/Jaivra/Simu5G Simu5G \    
     && bash -c "source /omnetpp-6.0/setenv && source inet4.4/setenv\
         && (cd inet4.4 && make makefiles && make MODE=release all -j$(nproc)) \
         && (cd Simu5G && make makefiles && make MODE=release all -j$(nproc))"
