@@ -103,18 +103,15 @@ void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
 void TODCarApp::handleMessageWhenUp(cMessage* msg){
 
     if (msg->isSelfMessage()){
+
         if (msg == updateStatusSelfMessage){
-            sendUpdateStatusPacket();
+            retrieveStatusData();
+            //sendUpdateStatusPacket();
             // this time contains all the parameters needed to generate status message, TODO: create ad hoc message
             // Note, you have to add the same time for all the UDP pkt of one frame
-
-            double Tc = par("Tc");
-            double Te = par("Te");
-            double Txl = par("Txl");
-
-            double processRetrievalDataTime = Tc + Te + Txl;
-
-            scheduleAt(simTime() + statusUpdateInterval + processRetrievalDataTime, msg);
+        }
+        else if (msg->getName() == RETRIEVE_STATUS_DATA_MSG_NAME) {
+            sendUpdateStatusPacket(msg->getTimestamp());
         }
     }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);
@@ -123,7 +120,23 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
 }
 
 
-void TODCarApp::sendUpdateStatusPacket(){
+
+
+void TODCarApp::retrieveStatusData(){
+
+    double Tc = par("Tc");
+    double Te = par("Te");
+    double Txl = par("Txl");
+    double processRetrievalDataTime = Tc + Te + Txl;
+
+    cMessage* msg = new cMessage(RETRIEVE_STATUS_DATA_MSG_NAME);
+    msg->setTimestamp();
+    scheduleAfter(processRetrievalDataTime, msg);
+}
+
+
+
+void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
     //get status id form CARLA API
 
     EV_INFO << "Send status update" << endl;
@@ -158,7 +171,7 @@ void TODCarApp::sendUpdateStatusPacket(){
         data->setActorId(actorId);
         data->setStatusId(statusId.c_str());
         data->setTotalFragments(numFragments);
-        data->setDataRetrievalTime(simTime());
+        data->setDataRetrievalTime(dataRetrievalTime);
         EV_INFO << "Send status update NUM FRAGMENTS: "<< fragmentNum<< "/"<< numFragments << endl;
         data->setFragmentNum(fragmentNum);
 
@@ -173,7 +186,6 @@ void TODCarApp::sendUpdateStatusPacket(){
 
 
 }
-
 
 
 void TODCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){

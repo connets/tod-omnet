@@ -44,6 +44,7 @@ private:
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
     const char *actorId;
+    const char *RETRIEVE_STATUS_DATA_MSG_NAME = "RETRIEVE_STATUS_DATA";
 
 protected:
     UdpSocket socket;
@@ -66,8 +67,9 @@ protected:
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
 
 
+    virtual void retrieveStatusData();
     /*Application logic*/
-    virtual void sendUpdateStatusPacket();
+    virtual void sendUpdateStatusPacket(simtime_t dataRetrievalTime);
 
     /*UDP logic*/
     /**
