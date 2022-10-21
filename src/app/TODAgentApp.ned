@@ -14,6 +14,8 @@ simple TODAgentApp like IApp
         string localAddress = default("server");
         int localPort = 3000;
         
+        volatile double Td @unit(s) = default(10ms); //time to decode one video frame
+        volatile double Tr @unit(s) = default(5ms); //time ti render one video frame 
         @signal[packetSent](type=inet::Packet);
         @signal[packetReceived](type=inet::Packet);
         @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);

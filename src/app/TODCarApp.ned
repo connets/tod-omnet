@@ -15,6 +15,12 @@ simple TODCarApp like IApp
         volatile int statusMessageLength @unit(byte) = default(8kB);
         double statusUpdateInterval @unit(s) = default(50ms);
         
+        volatile double Tc @unit(s) = default(8.33ms); //time to capture one video frame
+        volatile double Te @unit(s) = default(3.33ms); //time to encode one video frame
+        volatile double Txl @unit(s) = default(10ms); //car command exec delay
+        
+        
+        
         @signal[packetSent](type=inet::Packet);
         @signal[packetReceived](type=inet::Packet);
         @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);
