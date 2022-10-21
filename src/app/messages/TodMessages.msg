@@ -41,11 +41,13 @@ class TodStatusUpdateMessage extends TODMessage{
     int fragmentNum;
 	string actorId;
 	string statusId;
-} 
+	simtime_t dataRetrievalTime;
+}
 
 class TodInstructionMessage extends TODMessage{
     messageType = INSTRUCTION;
-    simtime_t statusCrationTime;
+    simtime_t statusDataRetrievalTime;
+    simtime_t statusCreationTime;
 	string actorId;
 	string instructionId;
 }

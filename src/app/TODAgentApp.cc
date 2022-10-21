@@ -140,6 +140,7 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto statusId = todStatusMessage->getStatusId();
     auto numFragments = todStatusMessage->getTotalFragments();
     auto fragmentNum = todStatusMessage->getFragmentNum();
+    auto dataRetrievalTime = todStatusMessage->getDataRetrievalTime();
 
 
     EV_INFO << "Received fragment for "<< actorId << " Status "<< statusId << "(" << fragmentNum +1<< "/" << numFragments << ")"<< endl;
@@ -159,6 +160,7 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
         data->setActorId(actorId);
         data->setInstructionId(instructionId.c_str());
         data->setStatusCrationTime(statusCreationTime);
+        data->setStatusDataRetrievalTime(dataRetrievalTime);
         auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
         creationTimeTag->setCreationTime(simTime()); // store current time
 

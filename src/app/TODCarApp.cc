@@ -105,7 +105,16 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
     if (msg->isSelfMessage()){
         if (msg == updateStatusSelfMessage){
             sendUpdateStatusPacket();
-            scheduleAt(simTime()+statusUpdateInterval, msg);
+            // this time contains all the parameters needed to generate status message, TODO: create ad hoc message
+            // Note, you have to add the same time for all the UDP pkt of one frame
+
+            double Tc = par("Tc");
+            double Te = par("Te");
+            double Txl = par("Txl");
+
+            double next_status_sim_time = simTime() + statusUpdateInterval + Tc + Te + Txl;
+
+            scheduleAt(next_status_sim_time, msg);
         }
     }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);
@@ -149,6 +158,7 @@ void TODCarApp::sendUpdateStatusPacket(){
         data->setActorId(actorId);
         data->setStatusId(statusId.c_str());
         data->setTotalFragments(numFragments);
+        data->setDataRetrievalTime(simTime());
         EV_INFO << "Send status update NUM FRAGMENTS: "<< fragmentNum<< "/"<< numFragments << endl;
         data->setFragmentNum(fragmentNum);
 
