@@ -31,8 +31,8 @@ Define_Module(TODCarApp);
 
 void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
-    simtime_t statusCrationTime = packet->peekData<TodInstructionMessage>()->getStatusCrationTime();
-    auto rtt = simTime() - statusCrationTime;
+    simtime_t statusCreationTime = packet->peekData<TodInstructionMessage>()->getStatusCreationTime();
+    auto rtt = simTime() - statusCreationTime;
 
     fire(this, simTime(), rtt,  details );
 }
@@ -112,9 +112,9 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
             double Te = par("Te");
             double Txl = par("Txl");
 
-            double next_status_sim_time = simTime() + statusUpdateInterval + Tc + Te + Txl;
+            double processRetrievalDataTime = Tc + Te + Txl;
 
-            scheduleAt(next_status_sim_time, msg);
+            scheduleAt(simTime() + statusUpdateInterval + processRetrievalDataTime, msg);
         }
     }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);

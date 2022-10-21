@@ -159,7 +159,7 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
         data->setChunkLength(B(par("instructionMessageLength").intValue()));
         data->setActorId(actorId);
         data->setInstructionId(instructionId.c_str());
-        data->setStatusCrationTime(statusCreationTime);
+        data->setStatusCreationTime(statusCreationTime);
         data->setStatusDataRetrievalTime(dataRetrievalTime);
         auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
         creationTimeTag->setCreationTime(simTime()); // store current time
