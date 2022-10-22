@@ -43,11 +43,56 @@ void TODAgentApp::initialize(int stage)
 
 
 void TODAgentApp::handleMessageWhenUp(cMessage* msg){
-    if (socket.belongsToSocket(msg)){
+    if (msg->isSelfMessage()){
+        if (msg->getName() == RENDERING_MESSAGE) {
+            Packet *pkt = check_and_cast<Packet *>(msg);
+            pkt->setContextPointer(nullptr);
+            calcAndSendnstruction(pkt);
+        }
+    }
+    if (socket.belongsToSocket(msg)) {
         socket.processMessage(msg);
     }
 
 }
+
+
+void TODAgentApp::calcAndSendnstruction(Packet *statusPacket){
+    auto todStatusMessage = statusPacket->peekData<TodStatusUpdateMessage>();
+
+    auto actorId = todStatusMessage->getActorId();
+    auto statusId = todStatusMessage->getStatusId();
+    auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
+    auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
+    auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
+
+    auto dataRetrievalTime = todStatusMessage->getDataRetrievalTime();
+
+    EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
+
+    auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
+
+    auto packet = new Packet("Instruction");
+    auto data = makeShared<TodInstructionMessage>();
+    // Data
+    data->setChunkLength(B(par("instructionMessageLength").intValue()));
+    data->setActorId(actorId);
+    data->setInstructionId(instructionId.c_str());
+    data->setStatusCreationTime(statusCreationTime);
+    data->setStatusDataRetrievalTime(dataRetrievalTime);
+    data->setInstructionRetrieveTime(simTime() - statusPacket->getTimestamp());
+    data->setInstructionCreationTime(simTime());
+
+    data->setStatusDataRetrievalTime(dataRetrievalTime);
+    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+    creationTimeTag->setCreationTime(simTime()); // store current time
+
+    packet->insertAtBack(data);
+
+    sendPacket(packet, srcAddress, srcPort);
+
+}
+
 
 void TODAgentApp::refreshDisplay() const{}
 
@@ -145,28 +190,14 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
 
     EV_INFO << "Received fragment for "<< actorId << " Status "<< statusId << "(" << fragmentNum +1<< "/" << numFragments << ")"<< endl;
 
+
     if (reassembleStatusPacket(actorId, statusId, numFragments )){
-        auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
-        auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
-        auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
-        EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
-
-        auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
-
-        auto packet = new Packet("Instruction");
-        auto data = makeShared<TodInstructionMessage>();
-        // Data
-        data->setChunkLength(B(par("instructionMessageLength").intValue()));
-        data->setActorId(actorId);
-        data->setInstructionId(instructionId.c_str());
-        data->setStatusCreationTime(statusCreationTime);
-        data->setStatusDataRetrievalTime(dataRetrievalTime);
-        auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-        creationTimeTag->setCreationTime(simTime()); // store current time
-
-        packet->insertAtBack(data);
-
-        sendPacket(packet, srcAddress, srcPort);
+        statusPacket->setName(RENDERING_MESSAGE);
+        statusPacket->setTimestamp();
+        double Td = par("Td");
+        double Tr = par("Tr");
+        double processRetrievalDataTime = Td + Tr;
+        scheduleAfter(processRetrievalDataTime, statusPacket);
     }
 }
 

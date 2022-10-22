@@ -25,6 +25,7 @@ using namespace inet;
 class TODAgentApp : public ApplicationBase, public UdpSocket::ICallback
 {
 private:
+    const char *RENDERING_MESSAGE = "RENDERING_MESSAGE";
     CarlaCommunicationManager* carlaCommunicationManager;
     string agentId;
 
@@ -52,7 +53,7 @@ protected:
     virtual void handleStartOperation(LifecycleOperation *operation) override;
     virtual void handleStopOperation(LifecycleOperation *operation) override;
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
-
+    virtual void calcAndSendnstruction(Packet *statusPacket);
     /*UDP logic*/
     /**
      * Notifies about data arrival, packet ownership is transferred to the callee.

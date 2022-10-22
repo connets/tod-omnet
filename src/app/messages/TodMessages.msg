@@ -48,6 +48,8 @@ class TodInstructionMessage extends TODMessage{
     messageType = INSTRUCTION;
     simtime_t statusDataRetrievalTime;
     simtime_t statusCreationTime;
+    simtime_t instructionRetrieveTime;
+    simtime_t instructionCreationTime;
 	string actorId;
 	string instructionId;
 }
