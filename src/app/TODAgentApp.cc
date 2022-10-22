@@ -80,7 +80,7 @@ void TODAgentApp::calcAndSendnstruction(Packet *statusPacket){
     data->setInstructionId(instructionId.c_str());
     data->setStatusCreationTime(statusCreationTime);
     data->setStatusDataRetrievalTime(dataRetrievalTime);
-    data->setInstructionRetrieveTime(simTime() - statusPacket->getTimestamp());
+    data->setInstructionRetrieveTime(statusPacket->getTimestamp());
     data->setInstructionCreationTime(simTime());
 
     data->setStatusDataRetrievalTime(dataRetrievalTime);

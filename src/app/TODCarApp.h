@@ -23,12 +23,18 @@ using namespace omnetpp;
 using namespace inet;
 
 
-class InstructionDelayResultFiter : public cObjectResultFilter{
+class instructionRTTNetworkFilter : public cObjectResultFilter{
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
 };
 
 
-Register_ResultFilter("instructionDelay", InstructionDelayResultFiter);
+class InstructionDelayResultFilter : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
+
+Register_ResultFilter("instructionRTTNetwork", instructionRTTNetworkFilter);
+Register_ResultFilter("InstructionDelay", InstructionDelayResultFilter);
 
 
 

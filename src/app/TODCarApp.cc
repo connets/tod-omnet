@@ -29,12 +29,25 @@ using namespace inet;
 
 Define_Module(TODCarApp);
 
-void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
-    simtime_t statusCreationTime = packet->peekData<TodInstructionMessage>()->getStatusCreationTime();
-    auto rtt = simTime() - statusCreationTime;
+    TodInstructionMessage instructionMessage = packet->peekData<TodInstructionMessage>();
+    auto uplinkRtt = statusCreationTime->getInstructionRetrieveTime() - statusCreationTime->getStatusCreationTime();
+    auto downLinkRtt = simTime() - statusCreationTime->getInstructionCreationTime();
+
+    auto rtt = downLinkRtt + uplinkRtt;
 
     fire(this, simTime(), rtt,  details );
+}
+
+void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    TodInstructionMessage instructionMessage = packet->peekData<TodInstructionMessage>();
+    simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusDataRetrievalTime();
+
+    auto instrucionDelay = simTime() - retrievalTime;
+
+    fire(this, simTime(), instrucionDelay,  details );
 }
 
 
