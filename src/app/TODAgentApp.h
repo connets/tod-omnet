@@ -19,6 +19,14 @@
 using namespace omnetpp;
 using namespace inet;
 
+
+class RetrievalInstructionFilter : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
+Register_ResultFilter("RetrievalInstruction", RetrievalInstructionFilter);
+
+
 /**
  * UDP application. See NED for more info.
  */

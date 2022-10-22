@@ -21,6 +21,7 @@ simple TODAgentApp like IApp
         @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);
         @statistic[throughput](title="throughput"; unit=bps; source="throughput(packetReceived)"; record=vector);
         @statistic[packetReceivedDelay](title="packets received delay"; source=weightedMeanPerGroup(groupRegionsPerPacket(lifeTimePerRegion(packetReceived))); record=vector; interpolationmode=none);
+		@statistic[RetrievalInstruction](title="retrieval instruction delay"; source = RetrievalInstruction(packetSent); record=vector,stats);
         
     gates:
         input socketIn;

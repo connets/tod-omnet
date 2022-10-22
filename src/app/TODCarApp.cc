@@ -29,11 +29,21 @@ using namespace inet;
 
 Define_Module(TODCarApp);
 
+void RetrievalStatusFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    simtime_t retrievalTime = packet->peekData<TodStatusUpdateMessage>()->getRetrievalTime();
+
+    auto instrucionDelay = simTime() - retrievalTime;
+
+    fire(this, simTime(), instrucionDelay,  details );
+}
+
+
 void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
-    TodInstructionMessage instructionMessage = packet->peekData<TodInstructionMessage>();
-    auto uplinkRtt = statusCreationTime->getInstructionRetrieveTime() - statusCreationTime->getStatusCreationTime();
-    auto downLinkRtt = simTime() - statusCreationTime->getInstructionCreationTime();
+    auto instructionMessage = packet->peekData<TodInstructionMessage>();
+    auto uplinkRtt = instructionMessage->getInstructionRetrievalTime() - instructionMessage->getStatusCreationTime();
+    auto downLinkRtt = simTime() - instructionMessage->getInstructionCreationTime();
 
     auto rtt = downLinkRtt + uplinkRtt;
 
@@ -42,7 +52,6 @@ void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_c
 
 void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
-    TodInstructionMessage instructionMessage = packet->peekData<TodInstructionMessage>();
     simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusDataRetrievalTime();
 
     auto instrucionDelay = simTime() - retrievalTime;
@@ -184,7 +193,7 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
         data->setActorId(actorId);
         data->setStatusId(statusId.c_str());
         data->setTotalFragments(numFragments);
-        data->setDataRetrievalTime(dataRetrievalTime);
+        data->setRetrievalTime(dataRetrievalTime);
         EV_INFO << "Send status update NUM FRAGMENTS: "<< fragmentNum<< "/"<< numFragments << endl;
         data->setFragmentNum(fragmentNum);
 

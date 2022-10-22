@@ -25,6 +25,17 @@ using namespace inet;
 
 Define_Module(TODAgentApp);
 
+
+void RetrievalInstructionFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getInstructionRetrievalTime();
+
+    auto instrucionDelay = simTime() - retrievalTime;
+
+    fire(this, simTime(), instrucionDelay,  details );
+}
+
+
 TODAgentApp::~TODAgentApp(){}
 
 void TODAgentApp::initialize(int stage)
@@ -66,7 +77,7 @@ void TODAgentApp::calcAndSendnstruction(Packet *statusPacket){
     auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
     auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
 
-    auto dataRetrievalTime = todStatusMessage->getDataRetrievalTime();
+    auto dataRetrievalTime = todStatusMessage->getRetrievalTime();
 
     EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
 
@@ -80,7 +91,7 @@ void TODAgentApp::calcAndSendnstruction(Packet *statusPacket){
     data->setInstructionId(instructionId.c_str());
     data->setStatusCreationTime(statusCreationTime);
     data->setStatusDataRetrievalTime(dataRetrievalTime);
-    data->setInstructionRetrieveTime(statusPacket->getTimestamp());
+    data->setInstructionRetrievalTime(statusPacket->getTimestamp());
     data->setInstructionCreationTime(simTime());
 
     data->setStatusDataRetrievalTime(dataRetrievalTime);
@@ -185,7 +196,7 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto statusId = todStatusMessage->getStatusId();
     auto numFragments = todStatusMessage->getTotalFragments();
     auto fragmentNum = todStatusMessage->getFragmentNum();
-    auto dataRetrievalTime = todStatusMessage->getDataRetrievalTime();
+    auto dataRetrievalTime = todStatusMessage->getRetrievalTime();
 
 
     EV_INFO << "Received fragment for "<< actorId << " Status "<< statusId << "(" << fragmentNum +1<< "/" << numFragments << ")"<< endl;

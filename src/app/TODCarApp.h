@@ -32,9 +32,14 @@ class InstructionDelayResultFilter : public cObjectResultFilter{
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
 };
 
+class RetrievalStatusFilter : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
 
 Register_ResultFilter("instructionRTTNetwork", instructionRTTNetworkFilter);
 Register_ResultFilter("InstructionDelay", InstructionDelayResultFilter);
+Register_ResultFilter("RetrievalStatus", RetrievalStatusFilter);
 
 
 
