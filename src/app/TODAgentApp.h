@@ -33,7 +33,7 @@ Register_ResultFilter("RetrievalInstruction", RetrievalInstructionFilter);
 class TODAgentApp : public ApplicationBase, public UdpSocket::ICallback
 {
 private:
-    const char *RENDERING_MESSAGE = "RENDERING_MESSAGE";
+    const int RENDERING_MESSAGE_KIND = 1;
     CarlaCommunicationManager* carlaCommunicationManager;
     string agentId;
 
@@ -61,7 +61,7 @@ protected:
     virtual void handleStartOperation(LifecycleOperation *operation) override;
     virtual void handleStopOperation(LifecycleOperation *operation) override;
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
-    virtual void calcAndSendnstruction(Packet *statusPacket);
+    virtual void calcAndSendnstruction(RenderingVideoMessage *todStatusMessage);
     /*UDP logic*/
     /**
      * Notifies about data arrival, packet ownership is transferred to the callee.

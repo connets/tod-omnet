@@ -55,7 +55,7 @@ private:
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
     const char *actorId;
-    const char *RETRIEVE_STATUS_DATA_MSG_NAME = "RETRIEVE_STATUS_DATA";
+    const int RETRIEVE_STATUS_DATA_MSG_KIND = 2;
 
 protected:
     UdpSocket socket;

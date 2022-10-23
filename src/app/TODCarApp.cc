@@ -131,8 +131,10 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
             //sendUpdateStatusPacket();
             // this time contains all the parameters needed to generate status message, TODO: create ad hoc message
             // Note, you have to add the same time for all the UDP pkt of one frame
+            scheduleAfter(statusUpdateInterval, msg);
+
         }
-        else if (msg->getName() == RETRIEVE_STATUS_DATA_MSG_NAME) {
+        else if (msg->getKind() == RETRIEVE_STATUS_DATA_MSG_KIND) {
             sendUpdateStatusPacket(msg->getTimestamp());
         }
     }else if(socket.belongsToSocket(msg)){
@@ -151,7 +153,7 @@ void TODCarApp::retrieveStatusData(){
     double Txl = par("Txl");
     double processRetrievalDataTime = Tc + Te + Txl;
 
-    cMessage* msg = new cMessage(RETRIEVE_STATUS_DATA_MSG_NAME);
+    cMessage* msg = new cMessage("retrieveStatusData", RETRIEVE_STATUS_DATA_MSG_KIND);
     msg->setTimestamp();
     scheduleAfter(processRetrievalDataTime, msg);
 }

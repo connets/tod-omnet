@@ -55,27 +55,24 @@ void TODAgentApp::initialize(int stage)
 
 void TODAgentApp::handleMessageWhenUp(cMessage* msg){
     if (msg->isSelfMessage()){
-        if (msg->getName() == RENDERING_MESSAGE) {
-            Packet *pkt = check_and_cast<Packet *>(msg);
-            pkt->setContextPointer(nullptr);
+        if (msg->getKind() == RENDERING_MESSAGE_KIND) {
+            RenderingVideoMessage *pkt = dynamic_cast<RenderingVideoMessage *>(msg);
             calcAndSendnstruction(pkt);
         }
     }
-    if (socket.belongsToSocket(msg)) {
+    else if (socket.belongsToSocket(msg)) {
         socket.processMessage(msg);
     }
 
 }
 
 
-void TODAgentApp::calcAndSendnstruction(Packet *statusPacket){
-    auto todStatusMessage = statusPacket->peekData<TodStatusUpdateMessage>();
-
+void TODAgentApp::calcAndSendnstruction(RenderingVideoMessage *todStatusMessage){
     auto actorId = todStatusMessage->getActorId();
     auto statusId = todStatusMessage->getStatusId();
-    auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
-    auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
-    auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
+    auto srcAddress = todStatusMessage->getSrcAddress();
+    auto srcPort = todStatusMessage->getSrcPort();
+    auto statusCreationTime = todStatusMessage->getStatusCreationTime();
 
     auto dataRetrievalTime = todStatusMessage->getRetrievalTime();
 
@@ -91,7 +88,7 @@ void TODAgentApp::calcAndSendnstruction(Packet *statusPacket){
     data->setInstructionId(instructionId.c_str());
     data->setStatusCreationTime(statusCreationTime);
     data->setStatusDataRetrievalTime(dataRetrievalTime);
-    data->setInstructionRetrievalTime(statusPacket->getTimestamp());
+    data->setInstructionRetrievalTime(todStatusMessage->getTimestamp());
     data->setInstructionCreationTime(simTime());
 
     data->setStatusDataRetrievalTime(dataRetrievalTime);
@@ -196,19 +193,24 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto statusId = todStatusMessage->getStatusId();
     auto numFragments = todStatusMessage->getTotalFragments();
     auto fragmentNum = todStatusMessage->getFragmentNum();
-    auto dataRetrievalTime = todStatusMessage->getRetrievalTime();
-
 
     EV_INFO << "Received fragment for "<< actorId << " Status "<< statusId << "(" << fragmentNum +1<< "/" << numFragments << ")"<< endl;
 
 
     if (reassembleStatusPacket(actorId, statusId, numFragments )){
-        statusPacket->setName(RENDERING_MESSAGE);
-        statusPacket->setTimestamp();
+        RenderingVideoMessage *pkt = new RenderingVideoMessage("renderingVideoMessage", RENDERING_MESSAGE_KIND);
+        pkt->setActorId(todStatusMessage->getActorId());
+        pkt->setStatusId(todStatusMessage->getStatusId());
+        pkt->setStatusCreationTime(statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime());
+        pkt->setRetrievalTime(todStatusMessage->getRetrievalTime());
+        pkt->setSrcAddress(statusPacket->getTag<L3AddressInd>()->getSrcAddress());
+        pkt->setSrcPort(statusPacket->getTag<L4PortInd>()->getSrcPort());
+        pkt->setTimestamp();
+
         double Td = par("Td");
         double Tr = par("Tr");
         double processRetrievalDataTime = Td + Tr;
-        scheduleAfter(processRetrievalDataTime, statusPacket);
+        scheduleAfter(processRetrievalDataTime, pkt);
     }
 }
 

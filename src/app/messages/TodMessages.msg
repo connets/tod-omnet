@@ -17,7 +17,7 @@
 import inet.common.INETDefs;
 import inet.common.Units;
 import inet.common.packet.chunk.Chunk;
-
+import inet.networklayer.common.L3Address;
 
 namespace inet;
 
@@ -54,4 +54,13 @@ class TodInstructionMessage extends TODMessage{
 	string instructionId;
 }
 
+packet RenderingVideoMessage{
+	string actorId;
+	string statusId;
+	simtime_t statusCreationTime;
+	
+	simtime_t retrievalTime;
+	L3Address srcAddress;
+	int srcPort;
+}
 
