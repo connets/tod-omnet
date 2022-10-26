@@ -32,14 +32,14 @@ class InstructionDelayResultFilter : public cObjectResultFilter{
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
 };
 
-class RetrievalStatusFilter : public cObjectResultFilter{
+class StatusCreationTime : public cObjectResultFilter{
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
 };
 
 
 Register_ResultFilter("instructionRTTNetwork", instructionRTTNetworkFilter);
-Register_ResultFilter("InstructionDelay", InstructionDelayResultFilter);
-Register_ResultFilter("RetrievalStatus", RetrievalStatusFilter);
+Register_ResultFilter("instructionDelay", InstructionDelayResultFilter);
+Register_ResultFilter("statusCreationTime", StatusCreationTime);
 
 
 
@@ -55,7 +55,7 @@ private:
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
     const char *actorId;
-    const int RETRIEVE_STATUS_DATA_MSG_KIND = 2;
+    const int CREATION_STATUS_DATA_MSG_KIND = 2;
 
 protected:
     UdpSocket socket;

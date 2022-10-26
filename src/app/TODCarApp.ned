@@ -13,12 +13,11 @@ simple TODCarApp like IApp
         string destAddress = default("server");
         int destPort = 3000;
         volatile int statusMessageLength @unit(byte) = default(8kB);
-        double statusUpdateInterval @unit(s) = default(50ms);
+        volatile int frameRate = default(60);
+        volatile double statusUpdateInterval  = 1 / frameRate;
         
-        volatile double Tc @unit(s) = default(8.33ms); //time to capture one video frame
-        volatile double Te @unit(s) = default(3.33ms); //time to encode one video frame
-        volatile double Txl @unit(s) = default(10ms); //car command exec delay
-        
+        volatile double encodingImageTime @unit(s) = default(10ms); //time to encode image
+        volatile double collectionDataTime @unit(s) = default(15ms); //time to collect sensors data      
         
         
         @signal[packetSent](type=inet::Packet);
@@ -27,9 +26,9 @@ simple TODCarApp like IApp
         @statistic[throughput](title="throughput"; unit=bps; source="throughput(packetReceived)"; record=vector);
         
         @statistic[packetReceivedDelay](title="packets received delay"; source=weightedMeanPerGroup(groupRegionsPerPacket(lifeTimePerRegion(packetReceived))); record=vector; interpolationmode=none);
-        @statistic[RetrievalStatus](title="retrieval status delay"; source = RetrievalStatus(packetSent); record=vector,stats);
+        @statistic[statusCreationTime](title="status creation time"; source = statusCreationTime(packetSent); record=vector,stats);
         @statistic[instructionRTTNetwork](title="network RTT"; source = instructionRTTNetwork(packetReceived); record=vector,stats);
-        @statistic[instructionDelay](title="instruction delay"; source = InstructionDelay(packetReceived); record=vector,stats);
+        @statistic[instructionDelay](title="instruction delay"; source = instructionDelay(packetReceived); record=vector,stats);
         
     gates:
         input socketIn;

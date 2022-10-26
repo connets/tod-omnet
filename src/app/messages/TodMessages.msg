@@ -41,25 +41,25 @@ class TodStatusUpdateMessage extends TODMessage{
     int fragmentNum;
 	string actorId;
 	string statusId;
-	simtime_t retrievalTime;
+	simtime_t collectionTime;
 }
 
 class TodInstructionMessage extends TODMessage{
     messageType = INSTRUCTION;
-    simtime_t statusDataRetrievalTime;
-    simtime_t statusCreationTime;
-    simtime_t instructionRetrievalTime;
+    simtime_t statusDataCollectionTime; //when starts the data collection
+    simtime_t statusCreationTime; //when status is created in the vehicle
+    simtime_t statusProcessingTime; //when status arrived to the agent, but it's not processed yet
     simtime_t instructionCreationTime;
 	string actorId;
 	string instructionId;
 }
 
-packet RenderingVideoMessage{
+packet ProcessedStatusMessage{
 	string actorId;
 	string statusId;
 	simtime_t statusCreationTime;
 	
-	simtime_t retrievalTime;
+	simtime_t collectionTime;
 	L3Address srcAddress;
 	int srcPort;
 }

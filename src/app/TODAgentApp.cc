@@ -26,9 +26,9 @@ using namespace inet;
 Define_Module(TODAgentApp);
 
 
-void RetrievalInstructionFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+void ProcessStatusTimeFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
-    simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getInstructionRetrievalTime();
+    simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusProcessingTime();
 
     auto instrucionDelay = simTime() - retrievalTime;
 
@@ -55,8 +55,8 @@ void TODAgentApp::initialize(int stage)
 
 void TODAgentApp::handleMessageWhenUp(cMessage* msg){
     if (msg->isSelfMessage()){
-        if (msg->getKind() == RENDERING_MESSAGE_KIND) {
-            RenderingVideoMessage *pkt = dynamic_cast<RenderingVideoMessage *>(msg);
+        if (msg->getKind() == PROCESS_STATUS_MESSAGE_KIND) {
+            ProcessedStatusMessage *pkt = dynamic_cast<ProcessedStatusMessage *>(msg);
             calcAndSendnstruction(pkt);
         }
     }
@@ -67,14 +67,14 @@ void TODAgentApp::handleMessageWhenUp(cMessage* msg){
 }
 
 
-void TODAgentApp::calcAndSendnstruction(RenderingVideoMessage *todStatusMessage){
+void TODAgentApp::calcAndSendnstruction(ProcessedStatusMessage *todStatusMessage){
     auto actorId = todStatusMessage->getActorId();
     auto statusId = todStatusMessage->getStatusId();
     auto srcAddress = todStatusMessage->getSrcAddress();
     auto srcPort = todStatusMessage->getSrcPort();
     auto statusCreationTime = todStatusMessage->getStatusCreationTime();
 
-    auto dataRetrievalTime = todStatusMessage->getRetrievalTime();
+    auto statusCollectionTime = todStatusMessage->getCollectionTime();
 
     EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
 
@@ -87,11 +87,10 @@ void TODAgentApp::calcAndSendnstruction(RenderingVideoMessage *todStatusMessage)
     data->setActorId(actorId);
     data->setInstructionId(instructionId.c_str());
     data->setStatusCreationTime(statusCreationTime);
-    data->setStatusDataRetrievalTime(dataRetrievalTime);
-    data->setInstructionRetrievalTime(todStatusMessage->getTimestamp());
+    data->setStatusDataCollectionTime(statusCollectionTime);
+    data->setStatusProcessingTime(todStatusMessage->getTimestamp());
     data->setInstructionCreationTime(simTime());
 
-    data->setStatusDataRetrievalTime(dataRetrievalTime);
     auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
     creationTimeTag->setCreationTime(simTime()); // store current time
 
@@ -198,19 +197,17 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
 
 
     if (reassembleStatusPacket(actorId, statusId, numFragments )){
-        RenderingVideoMessage *pkt = new RenderingVideoMessage("renderingVideoMessage", RENDERING_MESSAGE_KIND);
+        ProcessedStatusMessage *pkt = new ProcessedStatusMessage("processStatusMessage", PROCESS_STATUS_MESSAGE_KIND);
         pkt->setActorId(todStatusMessage->getActorId());
         pkt->setStatusId(todStatusMessage->getStatusId());
         pkt->setStatusCreationTime(statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime());
-        pkt->setRetrievalTime(todStatusMessage->getRetrievalTime());
+        pkt->setCollectionTime(todStatusMessage->getCollectionTime());
         pkt->setSrcAddress(statusPacket->getTag<L3AddressInd>()->getSrcAddress());
         pkt->setSrcPort(statusPacket->getTag<L4PortInd>()->getSrcPort());
         pkt->setTimestamp();
 
-        double Td = par("Td");
-        double Tr = par("Tr");
-        double processRetrievalDataTime = Td + Tr;
-        scheduleAfter(processRetrievalDataTime, pkt);
+        double processingStatusTime = par("processingStatusTime");
+        scheduleAfter(processingStatusTime, pkt);
     }
 }
 
