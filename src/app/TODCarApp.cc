@@ -136,7 +136,7 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
 
         }
         else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND) {
-            sendUpdateStatusPacket(msg->getTimestamp());
+            sendUpdateStatusPacket(simTime());
         }
     }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);
@@ -154,7 +154,7 @@ void TODCarApp::retrieveStatusData(){
     double creationStatusTime = encTime + collectTime;
 
     cMessage* msg = new cMessage("creationStatusTime", CREATION_STATUS_DATA_MSG_KIND);
-    msg->setTimestamp();
+    // msg->setTimestamp();
     scheduleAfter(creationStatusTime, msg);
 }
 
