@@ -29,12 +29,34 @@ using namespace inet;
 
 Define_Module(TODCarApp);
 
-void InstructionDelayResultFiter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
     auto packet = check_and_cast<Packet*>(object);
-    simtime_t statusCrationTime = packet->peekData<TodInstructionMessage>()->getStatusCrationTime();
-    auto rtt = simTime() - statusCrationTime;
+    simtime_t retrievalTime = packet->peekData<TodStatusUpdateMessage>()->getCollectionTime();
+
+    auto instrucionDelay = simTime() - retrievalTime;
+
+    fire(this, simTime(), instrucionDelay,  details );
+}
+
+
+void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    auto instructionMessage = packet->peekData<TodInstructionMessage>();
+    auto uplinkRtt = instructionMessage->getStatusProcessingTime() - instructionMessage->getStatusCreationTime();
+    auto downLinkRtt = simTime() - instructionMessage->getInstructionCreationTime();
+
+    auto rtt = downLinkRtt + uplinkRtt;
 
     fire(this, simTime(), rtt,  details );
+}
+
+void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusDataCollectionTime();
+
+    auto instrucionDelay = simTime() - retrievalTime;
+
+    fire(this, simTime(), instrucionDelay,  details );
 }
 
 
@@ -54,6 +76,7 @@ void TODCarApp::initialize(int stage)
 
         updateStatusSelfMessage = new cMessage("UpdateStatus");
         statusUpdateInterval = par("statusUpdateInterval");
+        EV_INFO << "****** => " << statusUpdateInterval << endl;
     }
 
 
@@ -103,9 +126,17 @@ void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
 void TODCarApp::handleMessageWhenUp(cMessage* msg){
 
     if (msg->isSelfMessage()){
+
         if (msg == updateStatusSelfMessage){
-            sendUpdateStatusPacket();
-            scheduleAt(simTime()+statusUpdateInterval, msg);
+            retrieveStatusData();
+            //sendUpdateStatusPacket();
+            // this time contains all the parameters needed to generate status message, TODO: create ad hoc message
+            // Note, you have to add the same time for all the UDP pkt of one frame
+            scheduleAfter(statusUpdateInterval, msg);
+
+        }
+        else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND) {
+            sendUpdateStatusPacket(simTime());
         }
     }else if(socket.belongsToSocket(msg)){
             socket.processMessage(msg);
@@ -114,7 +145,22 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
 }
 
 
-void TODCarApp::sendUpdateStatusPacket(){
+
+
+void TODCarApp::retrieveStatusData(){
+
+    double encTime = par("encodingImageTime");
+    double collectTime = par("collectionDataTime");
+    double creationStatusTime = encTime + collectTime;
+
+    cMessage* msg = new cMessage("creationStatusTime", CREATION_STATUS_DATA_MSG_KIND);
+    // msg->setTimestamp();
+    scheduleAfter(creationStatusTime, msg);
+}
+
+
+
+void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
     //get status id form CARLA API
 
     EV_INFO << "Send status update" << endl;
@@ -149,6 +195,7 @@ void TODCarApp::sendUpdateStatusPacket(){
         data->setActorId(actorId);
         data->setStatusId(statusId.c_str());
         data->setTotalFragments(numFragments);
+        data->setCollectionTime(dataRetrievalTime);
         EV_INFO << "Send status update NUM FRAGMENTS: "<< fragmentNum<< "/"<< numFragments << endl;
         data->setFragmentNum(fragmentNum);
 
@@ -163,7 +210,6 @@ void TODCarApp::sendUpdateStatusPacket(){
 
 
 }
-
 
 
 void TODCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){

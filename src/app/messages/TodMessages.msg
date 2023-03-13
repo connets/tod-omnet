@@ -17,7 +17,7 @@
 import inet.common.INETDefs;
 import inet.common.Units;
 import inet.common.packet.chunk.Chunk;
-
+import inet.networklayer.common.L3Address;
 
 namespace inet;
 
@@ -41,13 +41,26 @@ class TodStatusUpdateMessage extends TODMessage{
     int fragmentNum;
 	string actorId;
 	string statusId;
-} 
+	simtime_t collectionTime;
+}
 
 class TodInstructionMessage extends TODMessage{
     messageType = INSTRUCTION;
-    simtime_t statusCrationTime;
+    simtime_t statusDataCollectionTime; //when starts the data collection
+    simtime_t statusCreationTime; //when status is created in the vehicle
+    simtime_t statusProcessingTime; //when status arrived to the agent, but it's not processed yet
+    simtime_t instructionCreationTime;
 	string actorId;
 	string instructionId;
 }
 
+packet ProcessedStatusMessage{
+	string actorId;
+	string statusId;
+	simtime_t statusCreationTime;
+	
+	simtime_t collectionTime;
+	L3Address srcAddress;
+	int srcPort;
+}
 

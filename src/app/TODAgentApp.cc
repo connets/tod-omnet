@@ -25,6 +25,17 @@ using namespace inet;
 
 Define_Module(TODAgentApp);
 
+
+void ProcessStatusTimeFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+    auto packet = check_and_cast<Packet*>(object);
+    simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusProcessingTime();
+
+    auto instrucionDelay = simTime() - retrievalTime;
+
+    fire(this, simTime(), instrucionDelay,  details );
+}
+
+
 TODAgentApp::~TODAgentApp(){}
 
 void TODAgentApp::initialize(int stage)
@@ -43,11 +54,52 @@ void TODAgentApp::initialize(int stage)
 
 
 void TODAgentApp::handleMessageWhenUp(cMessage* msg){
-    if (socket.belongsToSocket(msg)){
+    if (msg->isSelfMessage()){
+        if (msg->getKind() == PROCESS_STATUS_MESSAGE_KIND) {
+            ProcessedStatusMessage *pkt = dynamic_cast<ProcessedStatusMessage *>(msg);
+            calcAndSendnstruction(pkt);
+        }
+    }
+    else if (socket.belongsToSocket(msg)) {
         socket.processMessage(msg);
     }
 
 }
+
+
+void TODAgentApp::calcAndSendnstruction(ProcessedStatusMessage *todStatusMessage){
+    auto actorId = todStatusMessage->getActorId();
+    auto statusId = todStatusMessage->getStatusId();
+    auto srcAddress = todStatusMessage->getSrcAddress();
+    auto srcPort = todStatusMessage->getSrcPort();
+    auto statusCreationTime = todStatusMessage->getStatusCreationTime();
+
+    auto statusCollectionTime = todStatusMessage->getCollectionTime();
+
+    EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
+
+    auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
+
+    auto packet = new Packet("Instruction");
+    auto data = makeShared<TodInstructionMessage>();
+    // Data
+    data->setChunkLength(B(par("instructionMessageLength").intValue()));
+    data->setActorId(actorId);
+    data->setInstructionId(instructionId.c_str());
+    data->setStatusCreationTime(statusCreationTime);
+    data->setStatusDataCollectionTime(statusCollectionTime);
+    data->setStatusProcessingTime(todStatusMessage->getTimestamp());
+    data->setInstructionCreationTime(simTime());
+
+    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+    creationTimeTag->setCreationTime(simTime()); // store current time
+
+    packet->insertAtBack(data);
+
+    sendPacket(packet, srcAddress, srcPort);
+
+}
+
 
 void TODAgentApp::refreshDisplay() const{}
 
@@ -141,30 +193,21 @@ void TODAgentApp::handleStatusUpdateMessage(Packet *statusPacket){
     auto numFragments = todStatusMessage->getTotalFragments();
     auto fragmentNum = todStatusMessage->getFragmentNum();
 
-
     EV_INFO << "Received fragment for "<< actorId << " Status "<< statusId << "(" << fragmentNum +1<< "/" << numFragments << ")"<< endl;
 
+
     if (reassembleStatusPacket(actorId, statusId, numFragments )){
-        auto srcAddress = statusPacket->getTag<L3AddressInd>()->getSrcAddress();
-        auto srcPort = statusPacket->getTag<L4PortInd>()->getSrcPort();
-        auto statusCreationTime = statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime();
-        EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
+        ProcessedStatusMessage *pkt = new ProcessedStatusMessage("processStatusMessage", PROCESS_STATUS_MESSAGE_KIND);
+        pkt->setActorId(todStatusMessage->getActorId());
+        pkt->setStatusId(todStatusMessage->getStatusId());
+        pkt->setStatusCreationTime(statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime());
+        pkt->setCollectionTime(todStatusMessage->getCollectionTime());
+        pkt->setSrcAddress(statusPacket->getTag<L3AddressInd>()->getSrcAddress());
+        pkt->setSrcPort(statusPacket->getTag<L4PortInd>()->getSrcPort());
+        pkt->setTimestamp();
 
-        auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId);
-
-        auto packet = new Packet("Instruction");
-        auto data = makeShared<TodInstructionMessage>();
-        // Data
-        data->setChunkLength(B(par("instructionMessageLength").intValue()));
-        data->setActorId(actorId);
-        data->setInstructionId(instructionId.c_str());
-        data->setStatusCrationTime(statusCreationTime);
-        auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-        creationTimeTag->setCreationTime(simTime()); // store current time
-
-        packet->insertAtBack(data);
-
-        sendPacket(packet, srcAddress, srcPort);
+        double processingStatusTime = par("processingStatusTime");
+        scheduleAfter(processingStatusTime, pkt);
     }
 }
 

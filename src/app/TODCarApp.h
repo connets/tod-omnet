@@ -23,12 +23,23 @@ using namespace omnetpp;
 using namespace inet;
 
 
-class InstructionDelayResultFiter : public cObjectResultFilter{
+class instructionRTTNetworkFilter : public cObjectResultFilter{
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
 };
 
 
-Register_ResultFilter("instructionDelay", InstructionDelayResultFiter);
+class InstructionDelayResultFilter : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
+class StatusCreationTime : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
+
+Register_ResultFilter("instructionRTTNetwork", instructionRTTNetworkFilter);
+Register_ResultFilter("instructionDelay", InstructionDelayResultFilter);
+Register_ResultFilter("statusCreationTime", StatusCreationTime);
 
 
 
@@ -44,6 +55,7 @@ private:
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
     const char *actorId;
+    const int CREATION_STATUS_DATA_MSG_KIND = 2;
 
 protected:
     UdpSocket socket;
@@ -66,8 +78,9 @@ protected:
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
 
 
+    virtual void retrieveStatusData();
     /*Application logic*/
-    virtual void sendUpdateStatusPacket();
+    virtual void sendUpdateStatusPacket(simtime_t dataRetrievalTime);
 
     /*UDP logic*/
     /**

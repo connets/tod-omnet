@@ -20,12 +20,21 @@
 using namespace omnetpp;
 using namespace inet;
 
+
+class ProcessStatusTimeFilter : public cObjectResultFilter{
+    virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
+};
+
+Register_ResultFilter("processStatusTime", ProcessStatusTimeFilter);
+
+
 /**
  * UDP application. See NED for more info.
  */
 class TODAgentApp : public ApplicationBase, public UdpSocket::ICallback
 {
 private:
+    const int PROCESS_STATUS_MESSAGE_KIND = 1;
     TodCarlanetManager* carlaCommunicationManager;
     string agentId;
 
@@ -53,7 +62,7 @@ protected:
     virtual void handleStartOperation(LifecycleOperation *operation) override;
     virtual void handleStopOperation(LifecycleOperation *operation) override;
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
-
+    virtual void calcAndSendnstruction(ProcessedStatusMessage *todStatusMessage);
     /*UDP logic*/
     /**
      * Notifies about data arrival, packet ownership is transferred to the callee.
