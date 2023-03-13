@@ -12,11 +12,11 @@
 #include <vector>
 #include <omnetpp.h>
 
+#include "../carla_omnet/TodCarlanetManager.h"
 #include "inet/networklayer/common/L3Address.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
 #include "inet/applications/base/ApplicationBase.h"
 
-#include "../carla_omnet/CarlaCommunicationManager.h"
 #include "messages/TodMessages_m.h"
 //#include "utils/InstructionDelayResultFilter.h"
 using namespace omnetpp;
@@ -40,7 +40,7 @@ class TODCarApp : public ApplicationBase, public UdpSocket::ICallback
 {
 
 private:
-    CarlaCommunicationManager* carlaCommunicationManager;
+    TodCarlanetManager* carlaCommunicationManager;
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
     const char *actorId;

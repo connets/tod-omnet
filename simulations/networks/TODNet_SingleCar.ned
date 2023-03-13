@@ -23,7 +23,7 @@ import simu5g.nodes.NR.gNodeB;
 import simu5g.nodes.NR.NRUe;
 import simu5g.nodes.backgroundCell.BackgroundCell;
 import simu5g.world.radio.LteChannelControl;
-import tod_network.carla_omnet.CarlaCommunicationManager;
+import tod_network.carla_omnet.TodCarlanetManager;
 import tod_network.nodes.CarlaCar;
 
 // SingleCell_standalone
@@ -68,7 +68,7 @@ network TODNet
             @display("p=819.264,630.51196");
         }
 
-        carlaCommunicationManager: CarlaCommunicationManager;
+        carlaCommunicationManager: TodCarlanetManager;
     connections:
         server.pppg++ <--> Eth10G {  ber = parent.bitErrorRate; } <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;

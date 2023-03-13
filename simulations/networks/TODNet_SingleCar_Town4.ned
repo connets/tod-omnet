@@ -9,7 +9,6 @@
 // and cannot be removed from it.
 // 
 package tod_network.simulations.networks;
-//import org.carla_omnet.CarlaCommunicationManager;
 
 import inet.tutorials.configurator.Eth100MLong;
 import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
@@ -25,7 +24,7 @@ import simu5g.nodes.NR.gNodeB;
 import simu5g.nodes.NR.NRUe;
 import simu5g.nodes.backgroundCell.BackgroundCell;
 import simu5g.world.radio.LteChannelControl;
-import tod_network.carla_omnet.CarlaCommunicationManager;
+import tod_network.carla_omnet.TodCarlanetManager;
 import tod_network.nodes.CarlaCar;
 
 // SingleCell_standalone
@@ -114,7 +113,7 @@ network TODNetTown4
 //		}
 //        
         
-        carlaCommunicationManager: CarlaCommunicationManager {
+        carlaCommunicationManager: TodCarlanetManager {
             @display("p=801.19196,901.592");
         }
 

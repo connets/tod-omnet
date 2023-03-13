@@ -15,20 +15,13 @@
 
 package tod_network.carla_omnet;
 
-import inet.mobility.base.MobilityBase;
+import carlanet.CarlaInetMobility;
 //
 // TODO auto-generated module
 //
-simple CarlaInetMobility extends MobilityBase {
+simple TodCarlaInetMobility extends CarlaInetMobility {
 	parameters:
-        @class(CarlaInetMobility);
-        @display("i=block/cogwheel");
-        @signal[mobilityStateChanged](type=inet::MobilityBase);
-        bool initFromDisplayString = default(true); // do not change this to false
-        
-        
-        string carlaActorType = default("simple_vehicle");
-        
+   		@class(TodCarlaInetMobility);  
         //Specify the name of the route, <empty string> means that the route is randomly defined by Carla
         string route = default("");   
         

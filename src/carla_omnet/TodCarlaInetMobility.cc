@@ -13,14 +13,13 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package tod_network.nodes;
+#include "TodCarlaInetMobility.h"
 
-import simu5g.nodes.NR.NRUe;
+Define_Module(TodCarlaInetMobility);
 
-module CarlaCar extends NRUe
+void TodCarlaInetMobility::initialize(int stage)
 {
-    parameters:
-        mobility.typename = default("TodCarlaInetMobility");
-
-        @display("i=misc/car,,0;is=n");
+    CarlaInetMobility::initialize(stage);
+    carlaActorConfiguration->set("route", par("route").stdstringValue());
 }
+

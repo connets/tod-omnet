@@ -21,7 +21,7 @@
 #include "inet/networklayer/common/L3AddressResolver.h"
 #include "inet/transportlayer/udp/Udp.h"
 #include "inet/transportlayer/contract/udp/UdpControlInfo_m.h"
-#include "../carla_omnet/CarlaCommunicationManager.h"
+#include "carla_omnet/TodCarlanetManager.h"
 #include "messages/TodMessages_m.h"
 
 using namespace omnetpp;
@@ -49,7 +49,7 @@ void TODCarApp::initialize(int stage)
     ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
         actorId = getParentModule()->getName();
-        carlaCommunicationManager = check_and_cast<CarlaCommunicationManager*>(
+        carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(
                 getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
 
         updateStatusSelfMessage = new cMessage("UpdateStatus");

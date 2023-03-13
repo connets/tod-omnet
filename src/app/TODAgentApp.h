@@ -8,12 +8,13 @@
 #ifndef _TODAGENTAPP_H
 #define _TODAGENTAPP_H
 #include <omnetpp.h>
+
+#include "../carla_omnet/TodCarlanetManager.h"
 #include "inet/networklayer/common/L3Address.h"
 #include "inet/transportlayer/contract/udp/UdpSocket.h"
 #include "inet/common/lifecycle/OperationalBase.h"
 #include "inet/applications/base/ApplicationBase.h"
 
-#include "../carla_omnet/CarlaCommunicationManager.h"
 #include "messages/TodMessages_m.h"
 
 using namespace omnetpp;
@@ -25,7 +26,7 @@ using namespace inet;
 class TODAgentApp : public ApplicationBase, public UdpSocket::ICallback
 {
 private:
-    CarlaCommunicationManager* carlaCommunicationManager;
+    TodCarlanetManager* carlaCommunicationManager;
     string agentId;
 
     map<pair<string,string>, int> reassembleStatusPacketsMap;

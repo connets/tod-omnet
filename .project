@@ -3,6 +3,7 @@
 	<name>tod_network</name>
 	<comment></comment>
 	<projects>
+		<project>carlanetpp</project>
 		<project>inet4.4</project>
 		<project>Simu5G</project>
 	</projects>

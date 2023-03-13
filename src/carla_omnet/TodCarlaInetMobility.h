@@ -13,14 +13,20 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package tod_network.nodes;
+#ifndef __TOD_OMNET_NETWORK_TODCARLAINETMOBILITY_H_
+#define __TOD_OMNET_NETWORK_TODCARLAINETMOBILITY_H_
 
-import simu5g.nodes.NR.NRUe;
 
-module CarlaCar extends NRUe
+#include <omnetpp.h>
+#include "carlanet/CarlaInetMobility.h"
+
+using namespace omnetpp;
+
+
+class TodCarlaInetMobility : public CarlaInetMobility
 {
-    parameters:
-        mobility.typename = default("TodCarlaInetMobility");
+public:
+    virtual void initialize(int stage) override;
+};
 
-        @display("i=misc/car,,0;is=n");
-}
+#endif
