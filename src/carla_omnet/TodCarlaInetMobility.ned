@@ -23,7 +23,7 @@ simple TodCarlaInetMobility extends CarlaInetMobility {
 	parameters:
    		@class(TodCarlaInetMobility);  
         //Specify the name of the route, <empty string> means that the route is randomly defined by Carla
-        string route = default("");   
-        
-        
+        string route = default("");
+        string agent_configuration;
+        string configuration_id; 
 }

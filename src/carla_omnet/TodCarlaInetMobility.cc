@@ -21,5 +21,9 @@ void TodCarlaInetMobility::initialize(int stage)
 {
     CarlaInetMobility::initialize(stage);
     carlaActorConfiguration->set("route", par("route").stdstringValue());
+    carlaActorConfiguration->set("configuration_id", par("configuration_id").stdstringValue());
+    carlaActorConfiguration->set("agent_configuration", par("agent_configuration").stdstringValue());
+    // convention: using the module name as agent id
+    carlaActorConfiguration->set("agent_id", getParentModule()->getFullName());
 }
 
