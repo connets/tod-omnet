@@ -22,9 +22,9 @@ Define_Module(TodCarlanetManager);
 
 
 const map<string,cValue>& TodCarlanetManager::getExtraInitParams(){
-    auto extraInitParams = cValueMap();
-    extraInitParams.set("carla_world_configuration",  cValue(par("carlaConfiguration").stdstringValue()));
-    return extraInitParams.getFields();
+    auto extraInitParams = new cValueMap();
+    extraInitParams->set("carla_world_configuration",  cValue(par("carlaConfiguration").stdstringValue()));
+    return extraInitParams->getFields();
 }
 
 
