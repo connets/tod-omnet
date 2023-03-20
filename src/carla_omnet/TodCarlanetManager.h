@@ -19,7 +19,7 @@
 #include "inet/common/INETDefs.h"
 #include "carlanet/CarlanetManager.h"
 
-#include "carla_omnet/TodCarlaApi.h"
+#include "TodCarlaApi.h"
 #include "TodCarlaInetMobility.h"
 
 using namespace std;
