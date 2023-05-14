@@ -26,7 +26,7 @@ RUN git clone https://github.com/Jaivra/carlanetpp \
         && (cd carlanetpp && make makefiles && make MODE=release all -j$(nproc))"
         
 
-COPY . /app/tod_omnet_network
-RUN bash -c "source /omnetpp-6.0/setenv && (cd tod_omnet_network && make makefiles && make MODE=release)"
+COPY . /app/tod-omnet
+RUN bash -c "source /omnetpp-6.0/setenv && (cd tod-omnet && make makefiles && make MODE=release)"
 
-CMD tod_omnet_network/out/gcc-release/src/tod_omnet_network -m -n tod_omnet_network/simulations:tod_omnet_network/src:inet4.4/examples:inet4.4/showcases:inet4.4/src:inet4.4/tests/validation:inet4.4/tests/networks:inet4.4/tutorials:Simu5G/emulation:Simu5G/simulations:Simu5G/src:carlanetpp/src -l carlanetpp/src/carlanet -l inet4.4/src/INET -l Simu5G/src/simu5g tod_omnet_network/simulations/small_set.ini -u Cmdenv --cmdenv-stop-batch-on-error=false --cmdenv-express-mode=true -c Tod-Town4-With-Background --result-dir=../results
+CMD tod-omnet/out/gcc-release/src/tod-omnet -m -n tod-omnet/simulations:tod-omnet/src:inet4.4/examples:inet4.4/showcases:inet4.4/src:inet4.4/tests/validation:inet4.4/tests/networks:inet4.4/tutorials:Simu5G/emulation:Simu5G/simulations:Simu5G/src:carlanetpp/src -l carlanetpp/src/carlanet -l inet4.4/src/INET -l Simu5G/src/simu5g tod-omnet/simulations/vnc.ini -u Cmdenv --cmdenv-stop-batch-on-error=false --cmdenv-express-mode=true -c Tod-Town4-With-Background --result-dir=../results
