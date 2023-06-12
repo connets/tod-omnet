@@ -17,13 +17,12 @@
 
 Define_Module(TodCarlaInetMobility);
 
-void TodCarlaInetMobility::initialize(int stage)
+void TodCarlaInetMobility::updateCarlaActorConfigurationFromParam(cValueMap *confMap)
 {
-    CarlaInetMobility::initialize(stage);
-    carlaActorConfiguration->set("route", par("route").stdstringValue());
-    carlaActorConfiguration->set("configuration_id", par("configuration_id").stdstringValue());
-    carlaActorConfiguration->set("agent_configuration", par("agent_configuration").stdstringValue());
+    confMap->set("route", par("route").stdstringValue());
+    confMap->set("configuration_id", par("configuration_id").stdstringValue());
+    confMap->set("agent_configuration", par("agent_configuration").stdstringValue());
     // convention: using the module name as agent id
-    carlaActorConfiguration->set("agent_id", getParentModule()->getFullName());
+    confMap->set("agent_id", getParentModule()->getFullName());
 }
 

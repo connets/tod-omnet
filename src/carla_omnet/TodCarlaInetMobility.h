@@ -25,8 +25,8 @@ using namespace omnetpp;
 
 class TodCarlaInetMobility : public CarlaInetMobility
 {
-public:
-    virtual void initialize(int stage) override;
+protected:
+    virtual void updateCarlaActorConfigurationFromParam(cValueMap *confMap) override;
 };
 
 #endif
