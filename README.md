@@ -59,7 +59,7 @@ Connection parameters:
 
 CARLA world configuration parameters:
 - `simulationTimeStep`: length of the fixed time step of *CARLA synchronous mode* 
-- `carlaConfiguration`: the specific CARLA world configuration. This must be one of the configurations available in the CARLA side components in the [configuration folder](https://github.com/connets/tod-carla/tree/main/configuration/world) 
+- `carlaConfiguration`: the specific CARLA world configuration. This must be one of the world configurations available in the CARLA side component in the [world configuration folder](https://github.com/connets/tod-carla/tree/main/configuration/world) 
 
 ``` ini
 ######### CARLA manager configurations #################
@@ -69,3 +69,47 @@ CARLA world configuration parameters:
 *.carlaCommunicationManager.carlaConfiguration = "world_4"   # file world_4.yaml is present in CARLA side world configurations folder
 ```
  
+### Vehicle Mobility and Remote Agent configuration
+Every vehicle that needs to be driven by a remote driver must include a mobility model of type [`TodCarlaInetMobility`](src/carla_omnet/TodCarlaInetMobility.ned), which extends `CarlaInetMobility` of [CARLANeTpp](https://github.com/carlanet/carlanetpp/).
+
+Vehicle type and mobility parameters:
+- `carlaActorType`: this parameter is inherited from `CarlaInetMobility` and tells CARLA side which CARLA actor to instantiate for this OMNeT++ module. The default value is `"car"`
+- `route` (optional): the route name of the specific route that the vehicle has to follow. If it is specified, the route name must be one of the routes available in the [route configuration folder](https://github.com/connets/tod-carla/tree/main/configuration/route) in the CARLA side component. The default value is an empty string `""` which means that CARLA randomly defines the vehicle route at generation time.
+- `configuration_id`: the configuration of the CARLA actor associated with the OMNeT++ module. The value must be one of the actor configurations available in the [actor configuration folder](https://github.com/connets/tod-carla/tree/main/configuration/actor) in the CARLA side component.
+- `agent_configuration`: the configuration of the CARLA agent controlling the CARLA actor. The value must be one of the agent configurations available in the [agent configuration folder](https://github.com/connets/tod-carla/tree/main/configuration/agent) in the CARLA side component.
+
+Example (`car` module is of type [`CarlaCar`](src/nodes/CarlaCar.ned)):
+``` ini
+**.car.mobility.route = "city_trip_world_4"  # file city_trip_world_4.yaml is present in CARLA side route configurations folder
+**.car.mobility.configuration_id = "simple_vehicle"  #simple_vehicle.yaml is present in CARLA side actor configurations folder  
+**.car.mobility.agent_configuration = "simple_agent"  #simple_agent.yaml" is present in CARLA side agent configurations folder
+```
+### ToD service configuration
+Tele-operated Driving service is composed of two applications that use UDP protocol as transport layer and CARLANeT APIs through [CARLANeTpp](https://github.com/carlanet/carlanetpp/) framework. 
+
+#### Car on-board application
+[`TODCarApp`](src/app/TODCarApp.ned) simulates the application on-board the vehicle and is responsible for uploading the vehicle status to the remote server and actuating the remote instructions (using CARLANeT APIs).
+It is a UDP-based client application and the following parameters can be configured:
+
+*Networking parameters:*
+- `destAddress`: address/hostname of the remote server where the remote driver application is deployed
+- `destPort`: port number on which the remote driver application is listening
+
+*Application parameters:*
+- `statusMessageLength`: size in bytes of the status message, i.e., the message containing all the data of the on-board sensors and video frame.  
+- `frameRate`: how many status updates per second.
+- `encodingImageTime`: simulates the time for encoding the video frame data 
+- `collectionDataTime`: simulates the time for collection of the sensors (e.g., accounting for sensor/video time, CAN bus, etc...) 
+
+#### Remote driver application
+[`TODAgentApp`](src/app/TODAgentApp.ned) simulates the console application of the remote driver and is responsible for receiving the vehicle status and computing the instructions (using CARLANeT APIs).
+It is a UPD-based server application and the following parameters can be configured:
+
+*Networking parameters:*
+- `localAddress`: address/hostname of the host on which the application is deployed
+- `localPort`: listening port number 
+
+*Application parameters*:
+- `agentId`: the ID of the agent controlling the vehicle on the CARLA side component
+- `instructionMessageLength`: size in bytes of the instruction
+- `processingStatusTime`: simulates the time for processing the received status message
