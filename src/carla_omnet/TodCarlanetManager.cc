@@ -24,7 +24,8 @@ string TodCarlanetManager::getActorStatus(string actorId){
     tod_carla_api::actor_status_update requestMsg;
     requestMsg.actor_id = actorId;
 
-    tod_carla_api::actor_status response = sendToAndGetFromCarla<tod_carla_api::actor_status_update, tod_carla_api::actor_status>(requestMsg);
+    //tod_carla_api::actor_status response = sendToAndGetFromCarla<tod_carla_api::actor_status_update, tod_carla_api::actor_status>(requestMsg);
+    tod_carla_api::actor_status response = sendToAndGetFromCarla_actor_generic_message<tod_carla_api::actor_status_update, tod_carla_api::actor_status>(requestMsg);
 
 
     return response.status_id;
@@ -39,7 +40,8 @@ string TodCarlanetManager::computeInstruction(string actorId, string statusId, s
     requestMsg.status_id = statusId;
 
     //json j = requestMsg;
-    tod_carla_api::instruction response = sendToAndGetFromCarla<tod_carla_api::compute_instruction,tod_carla_api::instruction>(requestMsg);
+    //tod_carla_api::instruction response = sendToAndGetFromCarla<tod_carla_api::compute_instruction,tod_carla_api::instruction>(requestMsg);
+    tod_carla_api::instruction response = sendToAndGetFromCarla_agent_generic_message<tod_carla_api::compute_instruction,tod_carla_api::instruction>(requestMsg);
 
     return response.instruction_id;
 }
@@ -49,8 +51,9 @@ void TodCarlanetManager::applyInstruction(string actorId, string instructionId){
     tod_carla_api::apply_instruction requestMsg;
     requestMsg.actor_id = actorId;
     requestMsg.instruction_id = instructionId;
-
-    sendToAndGetFromCarla<tod_carla_api::apply_instruction, tod_carla_api::ok>(requestMsg);
+    
+    //sendToAndGetFromCarla<tod_carla_api::apply_instruction, tod_carla_api::ok>(requestMsg);
+    sendToAndGetFromCarla_actor_generic_message<tod_carla_api::apply_instruction, tod_carla_api::ok>(requestMsg);
 
 
 }
