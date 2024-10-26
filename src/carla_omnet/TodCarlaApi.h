@@ -15,7 +15,7 @@ namespace tod_carla_api{
     /* CARLA --> OMNET */
     struct actor_status {
         std::string user_message_type = "ACTOR_STATUS";
-        std::string actor_id;
+        std::string actor_id; //TODO: remove because is unused
         std::string status_id;
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(actor_status, user_message_type, actor_id, status_id)
@@ -53,5 +53,13 @@ namespace tod_carla_api{
         std::string user_message_type = "OK";
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ok, user_message_type)
+
+    /* OMNET --> CARLA*/
+    struct cooperative_update {
+        std::string user_message_type = "COOPERATIVE_UPDATE";
+        std::string actor_id;
+        std::string status_id;
+    };
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(cooperative_update, user_message_type, actor_id, status_id)
 
 }

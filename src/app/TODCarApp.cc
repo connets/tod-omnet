@@ -24,6 +24,7 @@
 //#include "carla_omnet/TodCarlanetManager.h"
 #include "messages/TodMessages_m.h"
 
+
 using namespace omnetpp;
 using namespace inet;
 
@@ -59,8 +60,6 @@ void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_
     fire(this, simTime(), instrucionDelay,  details );
 }
 
-
-
 TODCarApp::~TODCarApp()
 {
     cancelAndDelete(updateStatusSelfMessage);
@@ -68,15 +67,23 @@ TODCarApp::~TODCarApp()
 
 void TODCarApp::initialize(int stage)
 {
-    ApplicationBase::initialize(stage);
+    //ApplicationBase::initialize(stage);
+    CooperativePerceptionCarApp::initialize(stage);
+
     if (stage == INITSTAGE_LOCAL) {
-        actorId = getParentModule()->getName();
-        carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(
-                getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
+
+        //actorId = (check_and_cast<TodCarlaInetMobility*>getParentModule()->getSubmodule("mobility"))->getCarlaId();
+        //auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+        //std::string carlaID = mobilityModule->getCarlaId();
+        //std::cout << "TODCarApp::initialize "<< carlaID << " " <<  endl;
+        //actorId = carlaID.c_str();
+        //actorId = getParentModule()->getName();
+
+        //carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
 
         updateStatusSelfMessage = new cMessage("UpdateStatus");
         statusUpdateInterval = par("statusUpdateInterval");
-        EV_INFO << "****** => " << statusUpdateInterval << endl;
+        EV_INFO << "****** status => " << statusUpdateInterval << endl;
     }
 
 
@@ -85,21 +92,20 @@ void TODCarApp::initialize(int stage)
 
 void TODCarApp::refreshDisplay() const{}
 
-void TODCarApp::finish()
-{
-    ApplicationBase::finish();
-}
-
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 {
 
-    L3AddressResolver().tryResolve(par("destAddress"), destAddress);
-    destPort = par("destPort");
+    CooperativePerceptionCarApp::handleStartOperation(operation);
 
-    socket.setOutputGate(gate("socketOut"));
-    socket.bind(destPort);
+    L3AddressResolver().tryResolve(par("destAddress"), destAddress);
+    //destPort = par("destPort");
+
+    std::cout << "TODCarApp::handleStartOperation "<< destAddress << ":" << destPort <<  endl;
+
+    //socket.setOutputGate(gate("socketOut"));
+    //socket.bind(destPort);
     //socket.setTos(0b00011100);
-    socket.setCallback(this);
+    //socket.setCallback(this);
 
     // wait statusUpdateInterval more before start to let Carla be ready
     simtime_t firstStatusUpdate = simTime() + carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateInterval;
@@ -110,20 +116,10 @@ void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 }
 
 
-void TODCarApp::handleStopOperation(LifecycleOperation *operation)
-{
-    socket.close();
-}
-
-void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
-{
-    if (operation->getRootModule() != getContainingNode(this)) // closes socket when the application crashed only
-        socket.destroy(); // TODO  in real operating systems, program crash detected by OS and OS closes sockets of crashed programs.
-    socket.setCallback(nullptr);
-}
-
 
 void TODCarApp::handleMessageWhenUp(cMessage* msg){
+
+    CooperativePerceptionCarApp::handleMessageWhenUp(msg);
 
     if (msg->isSelfMessage()){
 
@@ -138,8 +134,6 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg){
         else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND) {
             sendUpdateStatusPacket(simTime());
         }
-    }else if(socket.belongsToSocket(msg)){
-            socket.processMessage(msg);
     }
 
 }
@@ -161,10 +155,15 @@ void TODCarApp::retrieveStatusData(){
 
 
 void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
-    //get status id form CARLA API
 
-    EV_INFO << "Send status update" << endl;
-    string statusId = carlaCommunicationManager->getActorStatus(actorId);
+    L3AddressResolver().tryResolve(par("destAddress"), destAddress);
+
+    //get status id form CARLA API
+    auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+    std::string carlaID = mobilityModule->getCarlaId();
+
+    EV_INFO << "Send status update for id: "<< carlaID << " to: "<< destAddress<<":"<<destPort<< endl;
+    string statusId = carlaCommunicationManager->getActorStatus(carlaID);
 
 //    data->setChunkLength(B(1));
 //    data->setActorId(actorId);
@@ -192,7 +191,7 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
         auto data = makeShared<TodStatusUpdateMessage>();
 
         data->setChunkLength(B(fragmentLength));
-        data->setActorId(actorId);
+        data->setActorId(carlaID.c_str());
         data->setStatusId(statusId.c_str());
         data->setTotalFragments(numFragments);
         data->setCollectionTime(dataRetrievalTime);
@@ -202,7 +201,7 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
         auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
         creationTimeTag->setCreationTime(simTime()); // store current time
         packet->insertAtBack(data);
-        sendPacket(packet);
+        sendPacket(packet, destAddress);
 
         statusMessageLength -= UDP_MAX_MESSAGE_SIZE-10;
         fragmentNum++;
@@ -212,37 +211,24 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
 }
 
 
-void TODCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){
-    emit(packetReceivedSignal, packet);
-    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(packet) << endl;
-
-    processPacket(packet);
-
-    delete packet;
-    numReceived++;
-}
-
-
-void TODCarApp::socketErrorArrived(UdpSocket *socket, Indication *indication){}
-
-
-void TODCarApp::socketClosed(UdpSocket *socket){}
-
-void TODCarApp::sendPacket(Packet *packet){
-    emit(packetSentSignal, packet);
-    socket.sendTo(packet, destAddress, destPort);
+void TODCarApp::sendPacket(Packet *packet, string dsts){
+    CooperativePerceptionCarApp::SendPacket(packet, dsts);
     numSent++;
 }
 
 
 
 void TODCarApp::processPacket(Packet *pk){
+
+    CooperativePerceptionCarApp::processPacket(pk);
+
     if (pk->hasData<TODMessage>()){
         if (pk->peekData<TODMessage>()->getMessageType() == TODMessageType::INSTRUCTION){
             //CARLA apply instruction
             auto message = pk->peekData<TodInstructionMessage>();
             carlaCommunicationManager->applyInstruction(message->getActorId(), message->getInstructionId());
         }
+        //TODO: COOP MESSAGE
         else{
             EV_WARN << "Received an unexpected TOD Message " <<  pk->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
         }

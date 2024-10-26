@@ -37,6 +37,7 @@ public:
     string getActorStatus(string actorId);
     string computeInstruction(string actorId, string statusId, string agentId);
     void applyInstruction(string actorId, string instructionId);
+    void sendStatusToActor(string actorId, string statusId);
 
 protected:
     virtual const map<string,cValue>& getExtraInitParams() override;
