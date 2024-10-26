@@ -82,8 +82,7 @@ protected:
     virtual void retrieveStatusData();
     /*Application logic*/
     virtual void sendUpdateStatusPacket(simtime_t dataRetrievalTime);
-
-    virtual void sendPacket(Packet *pk) override;
+    virtual void sendPacket(Packet *pk, L3Address dsts) override;
     virtual void processPacket(Packet *pk) override;
 
 public:

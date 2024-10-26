@@ -62,6 +62,7 @@ void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_
 
 TODCarApp::~TODCarApp()
 {
+    CooperativePerceptionCarApp::cancelAndDelete(updateStatusSelfMessageCoop);
     cancelAndDelete(updateStatusSelfMessage);
 }
 
@@ -211,8 +212,8 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
 }
 
 
-void TODCarApp::sendPacket(Packet *packet, string dsts){
-    CooperativePerceptionCarApp::SendPacket(packet, dsts);
+void TODCarApp::sendPacket(Packet *packet, L3Address dsts){
+    CooperativePerceptionCarApp::sendPacket(packet, dsts);
     numSent++;
 }
 
@@ -236,6 +237,10 @@ void TODCarApp::processPacket(Packet *pk){
     else{
         EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(pk) <<endl;
     }
+
+
+    numReceived++;
+
     //pk->
     //{
     ////    const auto& received_payload = pk->peekData<TODMessage>();
