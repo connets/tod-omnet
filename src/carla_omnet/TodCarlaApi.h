@@ -54,4 +54,10 @@ namespace tod_carla_api{
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ok, user_message_type)
 
+    /* OMNET --> CARLA*/
+    struct finish_simulation {
+        std::string user_message_type = "FINISH_SIMULATION";
+    };
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(finish_simulation, user_message_type)
+
 }

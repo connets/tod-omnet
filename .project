@@ -4,8 +4,8 @@
 	<comment></comment>
 	<projects>
 		<project>carlanetpp</project>
-		<project>inet4.4</project>
-		<project>Simu5G</project>
+		<project>inet4.5</project>
+		<project>simu5g</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

@@ -37,6 +37,7 @@ network TODNetTown4
         int numUe = default(1);
         int numBgUes = default(0);
         int numTodBgUes = default(0);
+        int numBgCars = default(0);
         
         bool withBgBackhaul = default(false);
         
@@ -86,6 +87,14 @@ network TODNetTown4
         }
         car: CarlaCar {
             @display("p=540,330");
+        }
+        
+//        bg_car: CarlaCar {
+//            @display("p=540,330");
+//        }
+        
+        bg_cars[numBgCars]: CarlaCar {
+            @display("i=misc/car");
         }
         
         bgUe_1[numBgUes]: NRUe;

@@ -1,0 +1,37 @@
+runs=(166 203 213 223 254)
+#runs=(185 203 223 61 97 71)
+
+#runs=(316) #different seed
+#runs=() # normal seed
+#runs=(317 318) #normal seed
+
+for run in "${runs[@]}"; do
+#for run in {158..319}; do 
+#for run in {0..319..10}; do
+#for run in {196..196}; do 
+#for run in {0..319}; do 
+    #if [[ ${run} -ge 240 ]] && [[ $(( run % 2 )) != 1 ]]; then
+    #    continue
+    #fi
+    #echo ${run}
+    #continue
+
+    #--cmdenv-express-mode=false
+    #tod_network_dbg
+    # -q runs
+    #../src/tod_network -u Cmdenv -f vnc_local_DRR.ini -c "Tod-Town4-With-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src 
+    
+    #../src/tod_network -u Cmdenv -f vnc_hwy_straight.ini -c "Tod-Town4-Hwy-Obstacle-Rep-With-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src 
+    
+    #../src/tod_network -u Cmdenv -f vnc_city_straight.ini -c "Tod-Town4-Straight-Obstacle-Rep-With-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src 
+    
+    #../src/tod_network -u Cmdenv -f vnc_city_sudden_obstacle.ini -c "Tod-Town4-City-Sudden-Obstacle-With-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src
+    
+    #../src/tod_network -u Cmdenv -f vnc_city_sudden_obstacle.ini -c "Tod-Town4-City-Sudden-Obstacle-With-Moving-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src
+    
+    #../src/tod_network -u Cmdenv -f vnc_original_city_trip.ini -c "Tod-Town4-Original-City-Trip-With-Moving-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src
+    
+    ../src/tod_network -u Cmdenv -f vnc_hwy_sudden_obstacle.ini -c "Tod-Town4-Hwy-Sudden-Obstacle-With-Background" -r "${run}" -n .:../src:../../../../omnetpp-6.0.1/workspace/carlanetpp/simulations:../../../../omnetpp-6.0.1/workspace/carlanetpp/src:../../../../omnetpp-6.0.1/workspace/inet4.5/examples:../../../../omnetpp-6.0.1/workspace/inet4.5/showcases:../../../../omnetpp-6.0.1/workspace/inet4.5/src:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/validation:../../../../omnetpp-6.0.1/workspace/inet4.5/tests/networks:../../../../omnetpp-6.0.1/workspace/inet4.5/tutorials:../../../../omnetpp-6.0.1/workspace/simu5g/emulation:../../../../omnetpp-6.0.1/workspace/simu5g/simulations:../../../../omnetpp-6.0.1/workspace/simu5g/src
+    
+    sleep 15
+done

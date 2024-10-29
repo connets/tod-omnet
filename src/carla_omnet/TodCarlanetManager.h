@@ -40,7 +40,7 @@ public:
 
 protected:
     virtual const map<string,cValue>& getExtraInitParams() override;
-
+    void finish() override;
 };
 
 #endif
