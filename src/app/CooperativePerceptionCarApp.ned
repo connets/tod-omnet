@@ -24,9 +24,10 @@ simple CooperativePerceptionCarApp like IApp
 {
     parameters:
         @class(CooperativePerceptionCarApp);
-
+		string interfaceTableModule = default("^.interfaceTable");   // The path to the InterfaceTable module
         string destAddressesCoop = default(""); // list of IP addresses, separated by spaces ("": don't send)
         int destPort = 3000;
+        string multicastGroup = default(""); // if non-empty, makes the socket receive multicast packets sent to that group
         volatile int statusMessageLengthCoop @unit(byte) = default(1kB);
         //volatile int frameRate = default(60);
         volatile double statusUpdateIntervalCoop @unit(s)  = default(0.016s);

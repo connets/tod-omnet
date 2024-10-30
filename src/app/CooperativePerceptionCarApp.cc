@@ -83,6 +83,19 @@ void CooperativePerceptionCarApp::handleStartOperation(LifecycleOperation *opera
 
     socket.setOutputGate(gate("socketOut"));
     socket.bind(destPort);
+
+    MulticastGroupList mgl = getModuleFromPar<IInterfaceTable>(par("interfaceTableModule"), this)->collectMulticastGroups();
+    socket.joinLocalMulticastGroups(mgl);
+
+    // join multicastGroup
+    const char *groupAddr = par("multicastGroup");
+    L3Address multicastGroup = L3AddressResolver().resolve(groupAddr);
+    if (!multicastGroup.isUnspecified()) {
+        if (!multicastGroup.isMulticast())
+            throw cRuntimeError("Wrong multicastGroup setting: not a multicast address: %s", groupAddr);
+        socket.joinMulticastGroup(multicastGroup);
+    }
+
     //socket.setTos(0b00011100);
     socket.setCallback(this);
 
@@ -132,7 +145,7 @@ void CooperativePerceptionCarApp::handleMessageWhenUp(cMessage* msg){
         }
 
     }else if(socket.belongsToSocket(msg)){
-            socket.processMessage(msg);
+        socket.processMessage(msg);
     }
 
 }
@@ -161,20 +174,20 @@ void CooperativePerceptionCarApp::sendUpdateStatusPacketCoop(simtime_t dataRetri
     EV_INFO << "Send status update for coop for id: "<< carlaID << " to: "<< destAddressesCoop<<":"<<destPort<< endl;
     string statusId = carlaCommunicationManager->getActorStatus(carlaID);
 
-//    data->setChunkLength(B(1));
-//    data->setActorId(actorId);
-//    data->setStatusId(statusId.c_str());
-//    data->setTotalFragments(1);
-//    data->setFragmentNum(1);
-//
-//    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-//    creationTimeTag->setCreationTime(simTime()); // store current time
-//    packet->insertAtBack(data);
-//
-//    auto dataByte = makeShared<ByteCountChunk>(B(statusMessageLength));
-//    packet->insertAtBack(dataByte);
-//
-//    sendPacket(packet);
+    //    data->setChunkLength(B(1));
+    //    data->setActorId(actorId);
+    //    data->setStatusId(statusId.c_str());
+    //    data->setTotalFragments(1);
+    //    data->setFragmentNum(1);
+    //
+    //    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
+    //    creationTimeTag->setCreationTime(simTime()); // store current time
+    //    packet->insertAtBack(data);
+    //
+    //    auto dataByte = makeShared<ByteCountChunk>(B(statusMessageLength));
+    //    packet->insertAtBack(dataByte);
+    //
+    //    sendPacket(packet);
 
     // Data
     int statusMessageLengthCoop = par("statusMessageLengthCoop").intValue();

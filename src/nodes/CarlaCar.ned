@@ -21,6 +21,6 @@ module CarlaCar extends NRUe
 {
     parameters:
         mobility.typename = default("TodCarlaInetMobility");
-
+		*.routingTableModule = default(absPath(".ipv4.routingTable"));
         @display("i=misc/car,,0;is=n");
 }
