@@ -17,12 +17,10 @@ package tod_network.nodes;
 
 import simu5g.nodes.NR.NRUe;
 
-module CarlaCar extends NRUe
+module NRUwithMobility extends NRUe
 {
     parameters:
-        mobility.typename = default("TodCarlaInetMobility");
+        mobility.typename = default("CarlaInetMobility");
         
         *.routingTableModule = default(absPath(".ipv4.routingTable"));
-
-        @display("i=misc/car,,0;is=n");
 }

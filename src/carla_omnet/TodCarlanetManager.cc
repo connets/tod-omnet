@@ -34,6 +34,14 @@ string TodCarlanetManager::getActorStatus(string actorId){
     return response.status_id;
 }
 
+void TodCarlanetManager::getActorStatusZeroDelay(string actorId){
+    EV_INFO << "Contact Carla for getting the status id zero delay: "<< actorId << endl;
+    tod_carla_api::actor_status_update_zero_delay requestMsg;
+    requestMsg.actor_id = actorId;
+    sendToAndGetFromCarla_actor_generic_message<tod_carla_api::actor_status_update_zero_delay, tod_carla_api::ok>(requestMsg);
+}
+
+
 string TodCarlanetManager::computeInstruction(string actorId, string statusId, string agentId){
     EV_INFO << "Contact Carla for getting the instruction id" << endl;
 
@@ -59,10 +67,21 @@ void TodCarlanetManager::applyInstruction(string actorId, string instructionId){
 
 }
 
-void TodCarlanetManager::sendStatusToActor(string actorId, string statusId){
+//COOPERATIVE PERCEPTION
+string TodCarlanetManager::getCooperativeStatusFromCarlaActor(string actorId){
+    EV_INFO << "Contact Carla for getting the cooperative status id for actor: "<< actorId << endl;
+    tod_carla_api::cooperative_status_request requestMsg;
+    requestMsg.actor_id = actorId;
 
-    //TODO: implement this following zerodelay network COOPERATIVE_UPDATE.json
-    EV_INFO << "send to Carla for getting the instruction id" << endl;
+    tod_carla_api::actor_status response = sendToAndGetFromCarla_actor_generic_message<tod_carla_api::cooperative_status_request, tod_carla_api::actor_status>(requestMsg);
+
+
+    return response.status_id;
+}
+
+void TodCarlanetManager::sendCooperativeStatusToCarlaActor(string actorId, string statusId){
+
+    EV_INFO << "send to Carla cooperative id actor" << endl;
 
     tod_carla_api::cooperative_update requestMsg;
     requestMsg.actor_id = actorId;
@@ -71,6 +90,16 @@ void TodCarlanetManager::sendStatusToActor(string actorId, string statusId){
     sendToAndGetFromCarla_actor_generic_message<tod_carla_api::cooperative_update,tod_carla_api::ok>(requestMsg);
 }
 
+void TodCarlanetManager::sendCooperativeStatusToCarlaAgent(string agentId, string statusId){
+
+    EV_INFO << "send to Carla cooperative id agent" << endl;
+
+    tod_carla_api::cooperative_update requestMsg;
+    requestMsg.actor_id = agentId;
+    requestMsg.status_id = statusId;
+
+    sendToAndGetFromCarla_agent_generic_message<tod_carla_api::cooperative_update,tod_carla_api::ok>(requestMsg);
+}
 
 void CarlanetManager::finish() {
     std::cout << "finish(), before end the simulation" << endl;

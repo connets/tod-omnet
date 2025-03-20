@@ -8,7 +8,7 @@ simple TODAgentApp like IApp
 {
     parameters:
         @class(TODAgentApp);
-        string agentId;
+        string agentId = default("");
         volatile int instructionMessageLength @unit(byte) = default(30B);
         
         string localAddress = default("server");
@@ -27,4 +27,3 @@ simple TODAgentApp like IApp
         output socketOut;
 
 }
-

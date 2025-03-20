@@ -95,6 +95,7 @@
 							</tool>
 						</toolChain>
 					</folderInfo>
+					<fileInfo id="org.omnetpp.cdt.gnu.config.release.1028289205.1020210580" name="oneTOD_v2.ini" rcbsApplicability="disable" resourcePath="simulations/v2/oneTOD_v2.ini" toolsToInvoke=""/>
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH" kind="sourcePath" name="src"/>
 					</sourceEntries>

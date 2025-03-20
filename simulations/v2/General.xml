@@ -1,0 +1,8 @@
+<config>
+    <interface hosts='*' address='10.x.x.x' netmask='255.255.255.0'/>
+    <multicast-group hosts="VectorVehicle[*]" interfaces="cellular" address="224.0.0.3"/>
+    <multicast-group hosts="VectorEdgeCamera[*]" interfaces="cellular" address="224.0.0.3"/>
+    <multicast-group hosts="VectorPedestrian[*]" interfaces="cellular" address="224.0.0.3"/>
+</config>
+
+

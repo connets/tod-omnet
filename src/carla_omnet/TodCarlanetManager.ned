@@ -6,8 +6,6 @@ simple TodCarlanetManager extends CarlanetManager
 {
     parameters:
         @class(TodCarlanetManager);
-        networkActiveModuleType = "CarlaCar"; 
-        string carlaConfiguration;
-        
+        string carlaConfiguration = default("");
 }
 

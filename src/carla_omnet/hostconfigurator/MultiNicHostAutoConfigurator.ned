@@ -13,16 +13,19 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package tod_network.nodes;
+package tod_network.carla_omnet.hostconfigurator;
 
-import simu5g.nodes.NR.NRUe;
+//
+// TODO auto-generated module
+//
+import inet.networklayer.configurator.ipv4.HostAutoConfigurator;
 
-module CarlaCar extends NRUe
+
+simple MultiNicHostAutoConfigurator extends HostAutoConfigurator
 {
     parameters:
-        mobility.typename = default("TodCarlaInetMobility");
+        string addressesBase = default("11.0.0.0 10.0.0.0");    // lista indirizzi base per ciascuna interfaccia
+        string applyMcastGroupsTo = default("");
         
-        *.routingTableModule = default(absPath(".ipv4.routingTable"));
-
-        @display("i=misc/car,,0;is=n");
+     @class(MultiNicHostAutoConfigurator);
 }

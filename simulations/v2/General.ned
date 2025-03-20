@@ -32,62 +32,97 @@ import tod_network.nodes.CarlaCar;
 import tod_network.nodes.EdgeCamera;
 import inet.visualizer.common.IntegratedVisualizer;
 
-network oneTOD
+network General
 {
     parameters:
         int numUe = default(1);
         double bitErrorRate = default(0);
-        @display("i=block/network2;bgb=1000,1000;bgi=Town01.jpg");
+        int numUeD2DTx = default(0);
+        int numTodBgUes = default(0);
+        @display("i=block/network2;p=1000,2000;bgb=2000,1000");
     submodules:
-        visualizer: IntegratedVisualizer {
-            @display("p=701.44,168.96");
-        }
         channelControl: LteChannelControl {
-            @display("p=50,25;is=s");
+            @display("p=900,100;is=s");
         }
         routingRecorder: RoutingTableRecorder {
-            @display("p=50,75;is=s");
+            @display("p=900,250;is=s");
         }
         configurator: Ipv4NetworkConfigurator {
-            @display("p=50,125");
+            @display("p=900,400");
         }
         binder: Binder {
-            @display("p=50,900;is=s");
+            @display("p=900,550;is=s");
         }
         carrierAggregation: CarrierAggregation {
-            @display("p=50.993748,258.7;is=s");
+            @display("p=900,700;is=s");
         }
         server: StandardHost {
-            @display("p=212,118;is=n;i=device/server");
+            @display("p=569,196;is=n;i=device/server");
         }
         router: Router {
-            @display("p=363.175,115.66875;i=device/smallrouter");
+            @display("p=569,99;i=device/smallrouter");
         }
         upf: Upf {
-            @display("p=527.35,116.9125");
+            @display("p=482,100");
         }
         gnb: gNodeB {
-            @display("p=100,100;is=vl");
+            @display("p=-540,400");
+        }
+        gnb2: gNodeB {
+            @display("p=-540,-450");
+        }
+        gnb3: gNodeB {
+            @display("p=420,-450");
+        }
+        gnb4: gNodeB {
+            @display("p=420,400");
         }
 
         VectorVehicle[0]: CarlaCar {
-            @display("p=0,0");
+            @display("p=150,500");
         }
-        
+
         VectorPedestrian[0]: NRUe {
-            @display("p=0,100");
+            @display("p=150,650");
         }
-        
+
         VectorEdgeCamera[0]: EdgeCamera {
-            @display("p=0,200");
+            @display("p=150,800");
         }
-        
-        car2: NRUe {
-            @display("p=1,1");
+
+        VectorNRUeDISTURB[0]: NRUe {
+            @display("p=350,650");
         }
-        carlaCommunicationManager: TodCarlanetManager;
+
+        ueD2DTx[numUeD2DTx]: NRUe {
+            @display("p=550,400");
+        }
+
+        bgUeTod_1[numTodBgUes]: NRUe {
+            @display("p=550,500");
+            @display("i=misc/car2");
+        }
+
+
+        carlaCommunicationManager: TodCarlanetManager {
+            @display("p=900,850;is=s");
+        }
+        //NECESSARY TO CORRECT ROUTE PACKET (AGENT->VEHICLE) IN ROUTER
+        visualizer: IntegratedVisualizer {
+            @display("p=701.44,168.96");
+        }
     connections:
         server.pppg++ <--> Eth10G {  ber = parent.bitErrorRate; } <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;
         upf.pppg++ <--> Eth10G <--> gnb.ppp;
+        upf.pppg++ <--> Eth10G <--> gnb2.ppp;
+        upf.pppg++ <--> Eth10G <--> gnb3.ppp;
+        upf.pppg++ <--> Eth10G <--> gnb4.ppp;
+        //# X2 connections
+        gnb.x2++ <--> Eth10G <--> gnb2.x2++;
+        gnb.x2++ <--> Eth10G <--> gnb3.x2++;
+        gnb.x2++ <--> Eth10G <--> gnb4.x2++;
+        gnb2.x2++ <--> Eth10G <--> gnb3.x2++;
+        gnb2.x2++ <--> Eth10G <--> gnb4.x2++;
+        gnb3.x2++ <--> Eth10G <--> gnb4.x2++;
 }

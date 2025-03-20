@@ -17,22 +17,28 @@ package tod_network.app;
 
 import inet.applications.contract.IApp;
 
-//
-// TODO auto-generated module
-//
 simple CooperativePerceptionCarApp like IApp
 {
     parameters:
         @class(CooperativePerceptionCarApp);
+        
+        string interfaceTableModule = default("^.interfaceTable");   // The path to the InterfaceTable module
+        string multicastGroup = default(""); // if non-empty, makes the socket receive multicast packets sent to that group
 
-        string destAddressesCoop = default(""); // list of IP addresses, separated by spaces ("": don't send)
-        int destPort = 3000;
-        volatile int statusMessageLengthCoop @unit(byte) = default(1kB);
-        //volatile int frameRate = default(60);
+        string destAddressesCoop = default("224.0.0.3"); // list of IP addresses, separated by spaces ("": don't send)
+        int destPort = 5000;
+        volatile int statusMessageLengthCoop @unit(byte) = default(1kB); // TODO choose based on number of vehicles
         volatile double statusUpdateIntervalCoop @unit(s)  = default(0.016s);
 
         volatile double encodingImageTime @unit(s) = default(10ms); //time to encode image
         volatile double collectionDataTime @unit(s) = default(15ms); //time to collect sensors data
+        
+        string agentId = default("");
+        bool onlyReceive = default(false);
+        
+        //string interfaces = default("cellular lo0");         // List of interfaces to autoassign addresses to, separated by a single space character
+        //string addressBase = default("10.0.0.0");    // Start of the address range from which to automatically assign an address to the autoassignInterfaces
+        //string netmask = default("255.0.0.0");       // Subnet netmask in which to automatically assign an address to the autoassignInterfaces
     
     gates:
         input socketIn;

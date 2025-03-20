@@ -13,16 +13,17 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package tod_network.nodes;
+package tod_network.carla_omnet.hostconfigurator;
 
-import simu5g.nodes.NR.NRUe;
+import inet.networklayer.configurator.ipv4.Ipv4NodeConfigurator;
 
-module CarlaCar extends NRUe
+simple Ipv4NodeConfiguratorExtended extends Ipv4NodeConfigurator
 {
     parameters:
-        mobility.typename = default("TodCarlaInetMobility");
+        string interfaces = default("wlan");         // List of interfaces to autoassign addresses to, separated by a single space character
+        string addressBase = default("10.0.0.0");    // Start of the address range from which to automatically assign an address to the autoassignInterfaces
+        string netmask = default("255.0.0.0");       // Subnet netmask in which to automatically assign an address to the autoassignInterfaces
         
-        *.routingTableModule = default(absPath(".ipv4.routingTable"));
 
-        @display("i=misc/car,,0;is=n");
+	@class(Ipv4NodeConfiguratorExtended);
 }

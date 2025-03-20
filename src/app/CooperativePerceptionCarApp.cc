@@ -22,6 +22,7 @@
 #include "inet/common/TagBase_m.h"
 #include "inet/common/TimeTag_m.h"
 #include "inet/common/lifecycle/ModuleOperations.h"
+#include "inet/common/lifecycle/NodeStatus.h"
 #include "inet/common/packet/Packet.h"
 #include "inet/common/packet/chunk/ByteCountChunk.h"
 #include "inet/networklayer/common/FragmentationTag_m.h"
@@ -31,11 +32,20 @@
 //#include "carla_omnet/TodCarlanetManager.h"
 #include "messages/TodMessages_m.h"
 
+#include "inet/networklayer/common/L3AddressTag_m.h"
+#include "inet/transportlayer/common/L4PortTag_m.h"
+
+#include "inet/networklayer/common/NetworkInterface.h"
+
+#include "inet/networklayer/common/InterfaceTable.h"
+#include "inet/networklayer/ipv4/Ipv4InterfaceData.h"
+
+
 Define_Module(CooperativePerceptionCarApp);
 
 CooperativePerceptionCarApp::~CooperativePerceptionCarApp()
 {
-    cancelAndDelete(updateStatusSelfMessage);
+    cancelAndDelete(updateStatusSelfMessageCoop);
 }
 
 void CooperativePerceptionCarApp::initialize(int stage)
@@ -43,12 +53,8 @@ void CooperativePerceptionCarApp::initialize(int stage)
     ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
 
-        //actorId = (check_and_cast<TodCarlaInetMobility*>getParentModule()->getSubmodule("mobility"))->getCarlaId();
-        auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
-        //std::string carlaID = mobilityModule->getCarlaId();
-        //std::cout << "CooperativePerceptionCarApp::initialize "<< carlaID << " " <<  endl;
-        //actorId = carlaID.c_str();
-        //actorId = getParentModule()->getName();
+        onlyReceive = par("onlyReceive").boolValue();
+        agentId = par("agentId").stdstringValue();
 
         carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(
                 getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
@@ -80,15 +86,32 @@ void CooperativePerceptionCarApp::handleStartOperation(LifecycleOperation *opera
 
     socket.setOutputGate(gate("socketOut"));
     socket.bind(destPort);
+
+    MulticastGroupList mgl = getModuleFromPar<IInterfaceTable>(par("interfaceTableModule"), this)->collectMulticastGroups();
+    socket.joinLocalMulticastGroups(mgl);
+    // join multicastGroup
+    const char *groupAddr = par("multicastGroup");
+    L3Address multicastGroup = L3AddressResolver().resolve(groupAddr);
+    if (!multicastGroup.isUnspecified()) {
+        if (!multicastGroup.isMulticast())
+            throw cRuntimeError("Wrong multicastGroup setting: not a multicast address: %s", groupAddr);
+        socket.joinMulticastGroup(multicastGroup);
+    }
+
     //socket.setTos(0b00011100);
     socket.setCallback(this);
 
     // wait statusUpdateInterval more before start to let Carla be ready
-    simtime_t firstStatusUpdateCoop = simTime() + carlaCommunicationManager->getCarlaInitialCarlaTimestamp() + statusUpdateIntervalCoop;
+    simtime_t firstStatusUpdateCoop = simTime() /*+ carlaCommunicationManager->getCarlaInitialCarlaTimestamp()*/ + statusUpdateIntervalCoop;
 
     EV_INFO << "First update for coop will be at: " << firstStatusUpdateCoop << endl;
 
-    scheduleAt(firstStatusUpdateCoop, updateStatusSelfMessageCoop);
+
+    if (onlyReceive || agentId == "") {
+        EV_INFO << "set first firstStatusUpdateCoop" << endl;
+        scheduleAt(firstStatusUpdateCoop, updateStatusSelfMessageCoop);
+    }
+
 }
 
 
@@ -114,18 +137,31 @@ void CooperativePerceptionCarApp::handleMessageWhenUp(cMessage* msg){
             scheduleAfter(statusUpdateIntervalCoop, msg);
         }
         else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND_COOP) {
-            //create status
+            //get status from carla and send it to other actors
             sendUpdateStatusPacketCoop(simTime());
         } else if (msg->getKind() == PROCESS_STATUS_MESSAGE_KIND) {
-            //received status
+            //received status from others actors
             ProcessedStatusMessage *todStatusMessage = dynamic_cast<ProcessedStatusMessage *>(msg);
-            auto actorIdFrom = todStatusMessage->getActorId();
             auto statusId = todStatusMessage->getStatusId();
 
-            EV_INFO << "handleStatusUpdateMessage " << actorIdFrom << "," << statusId << endl;
+            if (agentId != "") {
+                EV_INFO << "sendCooperativeStatusToAgent in carla "<< agentId << endl;
+                //sendCooperativeStatusToAgent in carla
+                carlaCommunicationManager->sendCooperativeStatusToCarlaAgent(agentId, statusId);
+                return;
+            }
 
-            //sendCooperativeStatusToActor
-            carlaCommunicationManager->sendStatusToActor(actorIdFrom, statusId);
+
+            auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+            std::string carlaID = mobilityModule->getCarlaId();
+
+            auto actorIdFrom = todStatusMessage->getActorId();
+
+
+            EV_INFO << "i am: "<< carlaID << ", handleStatusUpdateMessage " << actorIdFrom << "," << statusId << endl;
+
+            //sendCooperativeStatusToActor in carla
+            carlaCommunicationManager->sendCooperativeStatusToCarlaActor(carlaID, statusId);
         }
 
     }else if(socket.belongsToSocket(msg)){
@@ -149,29 +185,14 @@ void CooperativePerceptionCarApp::retrieveStatusDataCoop(){
 
 void CooperativePerceptionCarApp::sendUpdateStatusPacketCoop(simtime_t dataRetrievalTime){
 
-    L3AddressResolver().tryResolve(par("destAddress"), destAddressesCoop);
+    L3AddressResolver().tryResolve(par("destAddressesCoop"), destAddressesCoop);
 
     //get status id form CARLA API
     auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
     std::string carlaID = mobilityModule->getCarlaId();
 
     EV_INFO << "Send status update for coop for id: "<< carlaID << " to: "<< destAddressesCoop<<":"<<destPort<< endl;
-    string statusId = carlaCommunicationManager->getActorStatus(carlaID);
-
-//    data->setChunkLength(B(1));
-//    data->setActorId(actorId);
-//    data->setStatusId(statusId.c_str());
-//    data->setTotalFragments(1);
-//    data->setFragmentNum(1);
-//
-//    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-//    creationTimeTag->setCreationTime(simTime()); // store current time
-//    packet->insertAtBack(data);
-//
-//    auto dataByte = makeShared<ByteCountChunk>(B(statusMessageLength));
-//    packet->insertAtBack(dataByte);
-//
-//    sendPacket(packet);
+    string statusId = carlaCommunicationManager->getCooperativeStatusFromCarlaActor(carlaID);
 
     // Data
     int statusMessageLengthCoop = par("statusMessageLengthCoop").intValue();
@@ -179,8 +200,8 @@ void CooperativePerceptionCarApp::sendUpdateStatusPacketCoop(simtime_t dataRetri
     int fragmentNum = 0;
     while (statusMessageLengthCoop>0){
         int fragmentLength = std::min(statusMessageLengthCoop, (int) UDP_MAX_MESSAGE_SIZE-10);
-        EV_INFO << "Send status update FRAGMENT:" << fragmentLength << endl;
-        auto packet = new Packet((string("StatusUpdate_")+statusId+"_"+ std::to_string(fragmentNum)).c_str());
+        EV_INFO << "Send status update cooperative perception FRAGMENT:" << fragmentLength << endl;
+        auto packet = new Packet((string("StatusUpdate_CoopPerc_")+statusId+"_"+ std::to_string(fragmentNum)).c_str());
 
         //TODO: CHANGE TodStatusUpdateMessage
         auto data = makeShared<TodStatusUpdateMessage>();
@@ -207,13 +228,12 @@ void CooperativePerceptionCarApp::sendUpdateStatusPacketCoop(simtime_t dataRetri
 
 
 void CooperativePerceptionCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){
-    emit(packetReceivedSignal, packet);
+
     EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(packet) << endl;
 
     processPacket(packet);
-
+    emit(packetReceivedSignal, packet);
     delete packet;
-    numReceived++;
 }
 
 
@@ -222,7 +242,7 @@ void CooperativePerceptionCarApp::socketErrorArrived(UdpSocket *socket, Indicati
 
 void CooperativePerceptionCarApp::socketClosed(UdpSocket *socket){}
 
-void CooperativePerceptionCarApp::sendPacket(Packet *packet, string dsts){
+void CooperativePerceptionCarApp::sendPacket(Packet *packet, L3Address dsts){
     emit(packetSentSignal, packet);
     socket.sendTo(packet, dsts, destPort);
 }
@@ -277,8 +297,8 @@ void CooperativePerceptionCarApp::handleStatusUpdateMessage(Packet *statusPacket
         pkt->setSrcPort(statusPacket->getTag<L4PortInd>()->getSrcPort());
         pkt->setTimestamp();
 
-        double processingStatusTime = par("processingStatusTime");
-        scheduleAfter(processingStatusTime, pkt);
+        //double processingStatusTime = par("processingStatusTime");
+        scheduleAfter(0.0, pkt);
     }
 }
 /*End*/
@@ -288,14 +308,14 @@ void CooperativePerceptionCarApp::processPacket(Packet *pk){
 
     EV_INFO << "handle arrived packet Cooperative perception" << endl;
 
-    if (packet->hasData<TODMessage>()){
-        if (packet->peekData<TODMessage>()->getMessageType() == TODMessageType::STATUS){
+    if (pk->hasData<TODMessage>()){
+        if (pk->peekData<TODMessage>()->getMessageType() == TODMessageType::STATUS){
             //receive message of status from others cars, send to CARLA ENVIRONMENT
-            handleStatusUpdateMessage(packet);
+            handleStatusUpdateMessage(pk);
         }
     }
     else{
-        EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(packet) <<endl;
+        EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(pk) <<endl;
     }
 
 }

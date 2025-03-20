@@ -35,17 +35,17 @@ using namespace inet;
 class CooperativePerceptionCarApp : public ApplicationBase, public UdpSocket::ICallback
 {
   private:
-    TodCarlanetManager* carlaCommunicationManager;
-    cMessage* updateStatusSelfMessageCoop;
-    double statusUpdateIntervalCoop;
+
     const char *actorId;
     const int CREATION_STATUS_DATA_MSG_KIND_COOP = 3;
-
     const int PROCESS_STATUS_MESSAGE_KIND = 1;
     map<pair<string,string>, int> reassembleStatusPacketsMap;
-
-
+    string agentId;
+    bool onlyReceive;
   protected:
+    cMessage* updateStatusSelfMessageCoop;
+    TodCarlanetManager* carlaCommunicationManager;
+    double statusUpdateIntervalCoop;
     UdpSocket socket;
     L3Address destAddressesCoop;
     int destPort;
@@ -86,7 +86,7 @@ class CooperativePerceptionCarApp : public ApplicationBase, public UdpSocket::IC
     virtual void socketClosed(UdpSocket *socket);
 
 
-    virtual void sendPacket(Packet *pk);
+    virtual void sendPacket(Packet *pk, L3Address dsts);
     virtual void processPacket(Packet *pk);
 
     virtual void handleStatusUpdateMessage(Packet *statusPacket);

@@ -13,16 +13,25 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package tod_network.nodes;
+#ifndef __TOD_OMNET_IPV4NODECONFIGURATOREXTENDED_H_
+#define __TOD_OMNET_IPV4NODECONFIGURATOREXTENDED_H_
 
-import simu5g.nodes.NR.NRUe;
+#include <omnetpp.h>
+#include "inet/networklayer/configurator/ipv4/Ipv4NodeConfigurator.h"
 
-module CarlaCar extends NRUe
+#include "inet/common/ModuleRefByPar.h"
+#include "inet/common/lifecycle/ModuleOperations.h"
+#include "inet/common/lifecycle/OperationalBase.h"
+
+using namespace omnetpp;
+using namespace inet;
+
+
+class Ipv4NodeConfiguratorExtended : virtual public Ipv4NodeConfigurator
 {
-    parameters:
-        mobility.typename = default("TodCarlaInetMobility");
-        
-        *.routingTableModule = default(absPath(".ipv4.routingTable"));
+    protected:
+        virtual void handleStartOperation(LifecycleOperation *operation);
+        virtual bool handleOperationStage(LifecycleOperation *operation, IDoneCallback *doneCallback) override;
+};
 
-        @display("i=misc/car,,0;is=n");
-}
+#endif

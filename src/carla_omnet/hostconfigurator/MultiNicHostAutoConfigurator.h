@@ -13,16 +13,20 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package tod_network.nodes;
+#ifndef __TOD_OMNET_MULTINICHOSTAUTOCONFIGURATOR_H_
+#define __TOD_OMNET_MULTINICHOSTAUTOCONFIGURATOR_H_
 
-import simu5g.nodes.NR.NRUe;
+#include <omnetpp.h>
+#include "inet/networklayer/configurator/ipv4/HostAutoConfigurator.h"
+using namespace omnetpp;
+using namespace inet;
 
-module CarlaCar extends NRUe
+
+class  MultiNicHostAutoConfigurator : public HostAutoConfigurator
 {
-    parameters:
-        mobility.typename = default("TodCarlaInetMobility");
-        
-        *.routingTableModule = default(absPath(".ipv4.routingTable"));
+  protected:
+    virtual void setupNetworkLayer() override;
+};
 
-        @display("i=misc/car,,0;is=n");
-}
+
+#endif

@@ -19,9 +19,6 @@
 
 #include "messages/TodMessages_m.h"
 //#include "utils/InstructionDelayResultFilter.h"
-
-#include "CooperativePerceptionCarApp.h"
-
 using namespace omnetpp;
 using namespace inet;
 
@@ -50,41 +47,61 @@ Register_ResultFilter("statusCreationTime", StatusCreationTime);
 /**
  * UDP application. See NED for more info.
  */
-class TODCarApp : public CooperativePerceptionCarApp
+class TODCarApp : public ApplicationBase, public UdpSocket::ICallback
 {
 
 private:
-    //TodCarlanetManager* carlaCommunicationManager;
+    TodCarlanetManager* carlaCommunicationManager;
     cMessage* updateStatusSelfMessage;
     double statusUpdateInterval;
-    //const char *actorId;
+    const char *actorId;
     const int CREATION_STATUS_DATA_MSG_KIND = 2;
+    bool zeroDelay;
 
 protected:
-    //UdpSocket socket;
+    UdpSocket socket;
     L3Address destAddress;
-    //int destPort;
+    int destPort;
     // statistics
     int numSent = 0;
     int numReceived = 0;
 
 
 protected:
-    //virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
+    virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
     virtual void handleMessageWhenUp(cMessage *msg) override;
-
+    virtual void finish() override;
     virtual void refreshDisplay() const override;
 
     virtual void handleStartOperation(LifecycleOperation *operation) override;
+    virtual void handleStopOperation(LifecycleOperation *operation) override;
+    virtual void handleCrashOperation(LifecycleOperation *operation) override;
 
 
     virtual void retrieveStatusData();
     /*Application logic*/
     virtual void sendUpdateStatusPacket(simtime_t dataRetrievalTime);
 
-    virtual void sendPacket(Packet *pk) override;
-    virtual void processPacket(Packet *pk) override;
+    /*UDP logic*/
+    /**
+     * Notifies about data arrival, packet ownership is transferred to the callee.
+     */
+    virtual void socketDataArrived(UdpSocket *socket, Packet *packet);
+
+    /**
+     * Notifies about error indication arrival, indication ownership is transferred to the callee.
+     */
+    virtual void socketErrorArrived(UdpSocket *socket, Indication *indication);
+
+    /**
+     * Notifies about socket closed, indication ownership is transferred to the callee.
+     */
+    virtual void socketClosed(UdpSocket *socket);
+
+
+    virtual void sendPacket(Packet *pk);
+    virtual void processPacket(Packet *pk);
 
 public:
     ~TODCarApp();

@@ -11,6 +11,13 @@ namespace tod_carla_api{
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(actor_status_update, user_message_type, actor_id)
 
+    /* OMNET --> CARLA*/
+    struct actor_status_update_zero_delay {
+        std::string user_message_type = "ACTOR_STATUS_UPDATE_ZERO_DELAY";
+        std::string actor_id;
+    };
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(actor_status_update_zero_delay, user_message_type, actor_id)
+
 
     /* CARLA --> OMNET */
     struct actor_status {
@@ -54,7 +61,17 @@ namespace tod_carla_api{
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ok, user_message_type)
 
-    /* OMNET --> CARLA*/
+
+
+
+    /* OMNET --> CARLA*/ /* CARLA -actor_status-> OMNET */
+    struct cooperative_status_request {
+        std::string user_message_type = "COOPERATIVE_STATUS_REQUEST";
+        std::string actor_id;
+    };
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(cooperative_status_request, user_message_type, actor_id)
+
+    /* OMNET --> CARLA*/ /* CARLA -ok-> OMNET */
     struct cooperative_update {
         std::string user_message_type = "COOPERATIVE_UPDATE";
         std::string actor_id;
