@@ -1,13 +1,13 @@
-// 
+//
 //                  Simu5G
 //
 // Authors: Giovanni Nardini, Giovanni Stea, Antonio Virdis (University of Pisa)
-// 
+//
 // This file is part of a software released under the license included in file
 // "license.pdf". Please read LICENSE and README files before using it.
-// The above files and the present reference are part of the software itself, 
+// The above files and the present reference are part of the software itself,
 // and cannot be removed from it.
-// 
+//
 package tod_network.simulations.networks;
 //import org.carla_omnet.CarlaCommunicationManager;
 
@@ -19,8 +19,8 @@ import inet.node.inet.StandardHost;
 import simu5g.common.binder.Binder;
 import simu5g.common.carrierAggregation.CarrierAggregation;
 import simu5g.nodes.Upf;
-import simu5g.nodes.NR.gNodeB;
-import simu5g.nodes.NR.NRUe;
+import simu5g.nodes.gNodeB;
+import simu5g.nodes.NrUe;
 import simu5g.nodes.backgroundCell.BackgroundCell;
 import simu5g.world.radio.LteChannelControl;
 import tod_network.carla_omnet.TodCarlanetManager;
