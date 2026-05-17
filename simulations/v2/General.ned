@@ -3,15 +3,15 @@
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-// 
+//
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Lesser General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see http://www.gnu.org/licenses/.
-// 
+//
 
 package tod_network.simulations.v2;
 
@@ -23,8 +23,8 @@ import inet.node.inet.StandardHost;
 import simu5g.common.binder.Binder;
 import simu5g.common.carrierAggregation.CarrierAggregation;
 import simu5g.nodes.Upf;
-import simu5g.nodes.NR.gNodeB;
-import simu5g.nodes.NR.NRUe;
+import simu5g.nodes.gNodeB;
+import simu5g.nodes.NrUe;
 import simu5g.nodes.backgroundCell.BackgroundCell;
 import simu5g.world.radio.LteChannelControl;
 import tod_network.carla_omnet.TodCarlanetManager;
@@ -82,7 +82,7 @@ network General
             @display("p=150,500");
         }
 
-        VectorPedestrian[0]: NRUe {
+        VectorPedestrian[0]: NrUe {
             @display("p=150,650");
         }
 
@@ -90,15 +90,15 @@ network General
             @display("p=150,800");
         }
 
-        VectorNRUeDISTURB[0]: NRUe {
+        VectorNRUeDISTURB[0]: NrUe {
             @display("p=350,650");
         }
 
-        ueD2DTx[numUeD2DTx]: NRUe {
+        ueD2DTx[numUeD2DTx]: NrUe {
             @display("p=550,400");
         }
 
-        bgUeTod_1[numTodBgUes]: NRUe {
+        bgUeTod_1[numTodBgUes]: NrUe {
             @display("p=550,500");
             @display("i=misc/car2");
         }
