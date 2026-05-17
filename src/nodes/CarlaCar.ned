@@ -16,13 +16,29 @@
 package tod_network.nodes;
 
 import simu5g.nodes.NrUe;
+import inet.transportlayer.contract.IQuic;
 
 module CarlaCar extends NrUe
 {
     parameters:
         mobility.typename = default("TodCarlaInetMobility");
-        
+
         *.routingTableModule = default(absPath(".ipv4.routingTable"));
 
         @display("i=misc/car,,0;is=n");
+
+    submodules:
+        quic: <default(firstAvailableOrEmpty("Quic"))> like IQuic {
+        	@display("p=825,226");
+        }
+
+    connections:
+        // connections with ip layer
+        quic.udpIn <-- tn.out++;
+        quic.udpOut --> tn.in++;
+
+        // connections with app layer
+		quic.appIn <-- at.out++;
+		quic.appOut --> at.in++;
+
 }
