@@ -42,6 +42,8 @@ class TodStatusUpdateMessage extends TODMessage{
 	string actorId;
 	string statusId;
 	simtime_t collectionTime;
+	uint64_t frameId;            // id del frame (generato dal veicolo al flush)
+	int expectedSensorData;     // quanti dati-sensore il veicolo spedisce in questo frame (denominatore della perdita)
 }
 
 class TodInstructionMessage extends TODMessage{
@@ -52,15 +54,17 @@ class TodInstructionMessage extends TODMessage{
     simtime_t instructionCreationTime;
 	string actorId;
 	string instructionId;
+	double lossRatio;           // frazione di dati-sensore mancanti su cui e' stata calcolata l'istruzione (0=frame completo)
 }
 
 packet ProcessedStatusMessage{
 	string actorId;
 	string statusId;
 	simtime_t statusCreationTime;
-	
+
 	simtime_t collectionTime;
 	L3Address srcAddress;
 	int srcPort;
+	uint64_t frameId;           // frame a cui si riferisce: serve al deadline per leggere arrivati/attesi
 }
 
