@@ -2,6 +2,7 @@ src/**/*_m.h
 src/**/*_m.cc
 src/Makefile
 src/Makefile.vc
+src/makefrag.local
 /doc/doxy/
 /doc/neddoc/
 *.pcap
