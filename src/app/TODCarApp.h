@@ -14,11 +14,11 @@
 
 #include "../carla_omnet/TodCarlanetManager.h"
 #include "inet/networklayer/common/L3Address.h"
-#include "inet/transportlayer/contract/udp/UdpSocket.h"
+#include "inet/transportlayer/contract/quic/QuicSocket.h"
 #include "inet/applications/base/ApplicationBase.h"
 
 #include "messages/TodMessages_m.h"
-//#include "utils/InstructionDelayResultFilter.h"
+#include "carlanet/CarlaInetMobility.h"
 using namespace omnetpp;
 using namespace inet;
 
@@ -45,9 +45,9 @@ Register_ResultFilter("statusCreationTime", StatusCreationTime);
 
 
 /**
- * UDP application. See NED for more info.
+ * QUIC application. See NED for more info.
  */
-class TODCarApp : public ApplicationBase, public UdpSocket::ICallback
+class TODCarApp : public ApplicationBase, public QuicSocket::ICallback
 {
 
 private:
@@ -57,11 +57,15 @@ private:
     const char *actorId;
     const int CREATION_STATUS_DATA_MSG_KIND = 2;
     bool zeroDelay;
+    uint64_t frameCounter = 0;   // It resets in each flush of the status update
+
+    std::vector<Packet*> sensorBuffer;
 
 protected:
-    UdpSocket socket;
+    QuicSocket socket;
     L3Address destAddress;
     int destPort;
+
     // statistics
     int numSent = 0;
     int numReceived = 0;
@@ -83,25 +87,21 @@ protected:
     /*Application logic*/
     virtual void sendUpdateStatusPacket(simtime_t dataRetrievalTime);
 
-    /*UDP logic*/
-    /**
-     * Notifies about data arrival, packet ownership is transferred to the callee.
-     */
-    virtual void socketDataArrived(UdpSocket *socket, Packet *packet);
+    /* QUIC socket callbacks (QuicSocket::ICallback) */
+    virtual void socketDataArrived(QuicSocket* socket, Packet* packet) override;
+    virtual void socketDataAvailable(QuicSocket* socket, QuicDataInfo* dataInfo) override;
+    virtual void socketEstablished(QuicSocket* socket) override;
+    virtual void socketClosed(QuicSocket* socket) override;
+    virtual void socketConnectionAvailable(QuicSocket* socket) override { }
+    virtual void socketDestroyed(QuicSocket* socket) override { }
+    virtual void socketSendQueueFull(QuicSocket* socket) override { }
+    virtual void socketSendQueueDrain(QuicSocket* socket) override { }
+    virtual void socketMsgRejected(QuicSocket* socket) override { }
 
-    /**
-     * Notifies about error indication arrival, indication ownership is transferred to the callee.
-     */
-    virtual void socketErrorArrived(UdpSocket *socket, Indication *indication);
-
-    /**
-     * Notifies about socket closed, indication ownership is transferred to the callee.
-     */
-    virtual void socketClosed(UdpSocket *socket);
-
-
-    virtual void sendPacket(Packet *pk);
-    virtual void processPacket(Packet *pk);
+    virtual void bufferizeSensorData(cMessage* msg);
+    virtual void sendSensorPacket(Packet* pk, uint64_t frameId);
+    virtual void sendUpdatePacket(Packet* pk);
+    virtual void processPacket(Packet* pk);
 
 public:
     ~TODCarApp();

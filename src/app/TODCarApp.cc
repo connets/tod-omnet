@@ -10,7 +10,6 @@
 
 #include <math.h>
 
-
 #include "inet/common/ModuleAccess.h"
 #include "inet/common/TagBase_m.h"
 #include "inet/common/TimeTag_m.h"
@@ -19,17 +18,17 @@
 #include "inet/common/packet/chunk/ByteCountChunk.h"
 #include "inet/networklayer/common/FragmentationTag_m.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
-#include "inet/transportlayer/udp/Udp.h"
-#include "inet/transportlayer/contract/udp/UdpCommand_m.h"
-//#include "carla_omnet/TodCarlanetManager.h"
+#include "inet/transportlayer/quic/Quic.h"
+#include "inet/transportlayer/contract/quic/QuicCommand_m.h"
 #include "messages/TodMessages_m.h"
+#include "../sensors/messages/SensorMessages_m.h"
 
 using namespace omnetpp;
 using namespace inet;
 
 Define_Module(TODCarApp);
 
-void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) {
     auto packet = check_and_cast<Packet*>(object);
     simtime_t retrievalTime = packet->peekData<TodStatusUpdateMessage>()->getCollectionTime();
 
@@ -39,7 +38,7 @@ void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cO
 }
 
 
-void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) {
     auto packet = check_and_cast<Packet*>(object);
     auto instructionMessage = packet->peekData<TodInstructionMessage>();
     auto uplinkRtt = instructionMessage->getStatusProcessingTime() - instructionMessage->getStatusCreationTime();
@@ -50,7 +49,7 @@ void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_c
     fire(this, simTime(), rtt,  details );
 }
 
-void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details){
+void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) {
     auto packet = check_and_cast<Packet*>(object);
     simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusDataCollectionTime();
 
@@ -66,8 +65,7 @@ TODCarApp::~TODCarApp()
     cancelAndDelete(updateStatusSelfMessage);
 }
 
-void TODCarApp::initialize(int stage)
-{
+void TODCarApp::initialize(int stage) {
     ApplicationBase::initialize(stage);
     if (stage == INITSTAGE_LOCAL) {
 
@@ -75,12 +73,9 @@ void TODCarApp::initialize(int stage)
 
         EV_INFO << "setting zero delay to => " << zeroDelay << endl;
 
-        //actorId = (check_and_cast<TodCarlaInetMobility*>getParentModule()->getSubmodule("mobility"))->getCarlaId();
-        auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
-        //std::string carlaID = mobilityModule->getCarlaId();
-        //std::cout << "TODCarApp::initialize "<< carlaID << " " <<  endl;
-        //actorId = carlaID.c_str();
-        //actorId = getParentModule()->getName();
+        auto mobilityModule = omnetpp::check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+
+        sensorBuffer.clear(); // Cleanup of sensor's array
 
         carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(
                 getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
@@ -89,38 +84,29 @@ void TODCarApp::initialize(int stage)
         statusUpdateInterval = par("statusUpdateInterval");
         EV_INFO << "****** => " << statusUpdateInterval << endl;
     }
-
-
-    //if (stage == INITSTAGE_APPLICATION_LAYER){}
 }
 
 void TODCarApp::refreshDisplay() const{}
 
-void TODCarApp::finish()
-{
+void TODCarApp::finish() {
     ApplicationBase::finish();
 }
 
+/*
+ * The periodic status/sensor frame is started in socketEstablished(),
+ * once the QUIC connection is ready
+ * */
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 {
-
-
     L3AddressResolver().tryResolve(par("destAddress"), destAddress);
     destPort = par("destPort");
 
     std::cout << "TODCarApp::handleStartOperation "<< destAddress << ":" << destPort <<  endl;
 
     socket.setOutputGate(gate("socketOut"));
-    socket.bind(destPort);
-    //socket.setTos(0b00011100);
+    socket.bind(L3Address(), destPort);     // local bind (unspecified address)
+    socket.connect(destAddress, destPort);  // start QUIC connection setup
     socket.setCallback(this);
-
-    // wait statusUpdateInterval more before start to let Carla be ready
-    simtime_t firstStatusUpdate = simTime() /*+ carlaCommunicationManager->getCarlaInitialCarlaTimestamp()*/ + statusUpdateInterval;
-
-    EV_INFO << "First update will be at: " << firstStatusUpdate << endl;
-
-    scheduleAt(firstStatusUpdate, updateStatusSelfMessage);
 }
 
 
@@ -131,56 +117,45 @@ void TODCarApp::handleStopOperation(LifecycleOperation *operation)
 
 void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
 {
-    if (operation->getRootModule() != getContainingNode(this)) // closes socket when the application crashed only
-        socket.destroy(); // TODO  in real operating systems, program crash detected by OS and OS closes sockets of crashed programs.
+    if (operation->getRootModule() != getContainingNode(this)) socket.destroy();
     socket.setCallback(nullptr);
 }
 
 
-void TODCarApp::handleMessageWhenUp(cMessage* msg){
-
+void TODCarApp::handleMessageWhenUp(cMessage* msg)
+{
     if (msg->isSelfMessage()){
-
         if (msg == updateStatusSelfMessage){
             retrieveStatusData();
-            //sendUpdateStatusPacket();
-            // this time contains all the parameters needed to generate status message, TODO: create ad hoc message
-            // Note, you have to add the same time for all the UDP pkt of one frame
+            send(new cMessage("collectSensors"), "toManager");
             scheduleAfter(statusUpdateInterval, msg);
-
-        }
-        else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND) {
-            sendUpdateStatusPacket(simTime());
-        }
-    }else if(socket.belongsToSocket(msg)){
-            socket.processMessage(msg);
+        } else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND) sendUpdateStatusPacket(simTime());
     }
-
+    else if (msg->arrivedOn("fromManager")) bufferizeSensorData(msg);
+    else if(socket.belongsToSocket(msg)) socket.processMessage(msg);
 }
 
 
 
-
-void TODCarApp::retrieveStatusData(){
-
+void TODCarApp::retrieveStatusData()
+{
     double encTime = par("encodingImageTime");
     double collectTime = par("collectionDataTime");
     double creationStatusTime = encTime + collectTime;
 
     cMessage* msg = new cMessage("creationStatusTime", CREATION_STATUS_DATA_MSG_KIND);
-    // msg->setTimestamp();
     scheduleAfter(creationStatusTime, msg);
 }
 
 
 
-void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
-
+void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
+{
     zeroDelay = par("zeroDelay").boolValue();
 
     EV_INFO << "TODCarApp::sendUpdateStatusPacket setting zero delay to => " << zeroDelay << endl;
 
-    //get status id form CARLA API
+    // Get status id form CARLA API
     auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
     std::string carlaID = mobilityModule->getCarlaId();
 
@@ -188,109 +163,109 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime){
 
     if (zeroDelay){
         carlaCommunicationManager->getActorStatusZeroDelay(carlaID);
+        for (auto pk : sensorBuffer) delete pk;
+        sensorBuffer.clear();
         return;
     }
 
     string statusId = carlaCommunicationManager->getActorStatus(carlaID);
 
-
-
     L3AddressResolver().tryResolve(par("destAddress"), destAddress);
     EV_INFO << "Send status update for id: "<< carlaID << " to: "<< destAddress<<":"<<destPort<< endl;
 
-
-
-//    data->setChunkLength(B(1));
-//    data->setActorId(actorId);
-//    data->setStatusId(statusId.c_str());
-//    data->setTotalFragments(1);
-//    data->setFragmentNum(1);
-//
-//    auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-//    creationTimeTag->setCreationTime(simTime()); // store current time
-//    packet->insertAtBack(data);
-//
-//    auto dataByte = makeShared<ByteCountChunk>(B(statusMessageLength));
-//    packet->insertAtBack(dataByte);
-//
-//    sendPacket(packet);
-
-    // Data
+    // Status update Message
     int statusMessageLength = par("statusMessageLength").intValue();
-    int numFragments = std::ceil(1.0*statusMessageLength/ (UDP_MAX_MESSAGE_SIZE-10));
-    int fragmentNum = 0;
-    while (statusMessageLength>0){
-        int fragmentLength = std::min(statusMessageLength, (int) UDP_MAX_MESSAGE_SIZE-10);
-        EV_INFO << "Send status update FRAGMENT:" << fragmentLength << endl;
-        auto packet = new Packet((string("StatusUpdate_")+statusId+"_"+ std::to_string(fragmentNum)).c_str());
-        auto data = makeShared<TodStatusUpdateMessage>();
+    EV_INFO << "Send status update message" << endl;
 
-        data->setChunkLength(B(fragmentLength));
-        data->setActorId(carlaID.c_str());
-        data->setStatusId(statusId.c_str());
-        data->setTotalFragments(numFragments);
-        data->setCollectionTime(dataRetrievalTime);
-        EV_INFO << "Send status update NUM FRAGMENTS: "<< fragmentNum<< "/"<< numFragments << endl;
-        data->setFragmentNum(fragmentNum);
+    // frameId di questo invio + numero di dati-sensore che sto per spedire:
+    // e' il denominatore su cui l'agente calcolera' la percentuale di perdita.
+    uint64_t frameId = ++frameCounter;
+    int expectedSensorData = sensorBuffer.size();
 
-        auto creationTimeTag = data->addTag<CreationTimeTag>(); // add new tag
-        creationTimeTag->setCreationTime(simTime()); // store current time
-        packet->insertAtBack(data);
-        sendPacket(packet);
+    auto packet = new Packet((string("StatusUpdate_")+statusId).c_str());
+    auto data = makeShared<TodStatusUpdateMessage>();
 
-        statusMessageLength -= UDP_MAX_MESSAGE_SIZE-10;
-        fragmentNum++;
-    }
+    data->setActorId(carlaID.c_str());
+    data->setStatusId(statusId.c_str());
+    data->setCollectionTime(dataRetrievalTime);
+    data->setFrameId(frameId);
+    data->setExpectedSensorData(expectedSensorData);
 
+    auto creationTimeTag = data->addTag<CreationTimeTag>();
+    creationTimeTag->setCreationTime(simTime());
 
+    packet->insertAtBack(data);
+    auto streamReq = packet->addTag<QuicStreamReq>();
+    streamReq->setStreamID(0);
+
+    sendUpdatePacket(packet);
+
+    // Sensor data: marcati con lo STESSO frameId dello status, cosi' l'agente li correla
+    for(; not sensorBuffer.empty(); sensorBuffer.pop_back()) sendSensorPacket(sensorBuffer.back(), frameId);
 }
 
 
-void TODCarApp::socketDataArrived(UdpSocket *socket, Packet *packet){
+void TODCarApp::socketDataArrived(QuicSocket *socket, Packet *packet)
+{
     emit(packetReceivedSignal, packet);
-    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(packet) << endl;
-
     processPacket(packet);
-
     delete packet;
     numReceived++;
 }
 
 
-void TODCarApp::socketErrorArrived(UdpSocket *socket, Indication *indication){}
+void TODCarApp::socketEstablished(QuicSocket *socket)
+{
+    EV_INFO << "TODCarApp: QUIC connection established, starting status loop" << endl;
+    scheduleAt(simTime() + statusUpdateInterval, updateStatusSelfMessage);
+}
 
+void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo){
+    socket->recv(dataInfo->getAvaliableDataSize(), dataInfo->getStreamID());
+}
 
-void TODCarApp::socketClosed(UdpSocket *socket){}
+void TODCarApp::socketClosed(QuicSocket *socket){}
 
-void TODCarApp::sendPacket(Packet *packet){
+void TODCarApp::sendSensorPacket(Packet *pk, uint64_t frameId)
+{
+    auto resp = pk->removeAtFront<SensorDataResponse>();
+    resp->setFrameId(frameId);
+    pk->insertAtFront(resp);
+
+    auto quicStreamReq = pk->findTag<QuicStreamReq>();
+    uint64_t streamId = quicStreamReq ? quicStreamReq->getStreamID() : 0;
+
+    EV_INFO << "TODCarApp: send data on stream " << streamId << " (frame " << frameId << ")" << endl;
+    emit(packetSentSignal, pk);
+    socket.send(pk, streamId);
+    numSent++;
+}
+
+void TODCarApp::bufferizeSensorData(cMessage* msg)
+{
+    Packet* pkt = check_and_cast<Packet*>(msg);
+    sensorBuffer.push_back(pkt);
+}
+
+void TODCarApp::sendUpdatePacket(Packet *packet)
+{
     emit(packetSentSignal, packet);
-    socket.sendTo(packet, destAddress, destPort);
+    socket.send(packet, 0);
     numSent++;
 }
 
 
+// implementazione di diversi teleoperatori?
 
-void TODCarApp::processPacket(Packet *pk){
+void TODCarApp::processPacket(Packet *pk)
+{
     if (pk->hasData<TODMessage>()){
         if (pk->peekData<TODMessage>()->getMessageType() == TODMessageType::INSTRUCTION){
-            //CARLA apply instruction
             auto message = pk->peekData<TodInstructionMessage>();
             carlaCommunicationManager->applyInstruction(message->getActorId(), message->getInstructionId());
         }
         //TODO: COOP MESSAGE
-        else{
-            EV_WARN << "Received an unexpected TOD Message " <<  pk->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
-        }
+        else EV_WARN << "Received an unexpected TOD Message " <<  pk->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
     }
-    else{
-        EV_WARN << "Received an unexpected packet "<< UdpSocket::getReceivedPacketInfo(pk) <<endl;
-    }
-    //pk->
-    //{
-    ////    const auto& received_payload = pk->peekData<TODMessage>();
-    ////    rma::receive_message_answer answer = carlaCommunicationManager->receiveMessage(received_payload->getMsgId());
-    ////    emit(packetReceivedSignal, pk);
-    ////    EV_INFO << "Received packet: " << UdpSocket::getReceivedPacketInfo(pk) << endl;
-    ////    delete pk;
-    ////    numReceived++;
+    else EV_WARN << "Received an unexpected packet "<< pk->getName() <<endl;
 }
