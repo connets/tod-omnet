@@ -5,7 +5,7 @@
 	<projects>
 		<project>carlanetpp</project>
 		<project>inet-4.6.0</project>
-		<project>simu5g-1.4.3</project>
+		<project>simu5g-1.4.4</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>
