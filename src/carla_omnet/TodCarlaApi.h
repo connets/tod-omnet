@@ -24,7 +24,7 @@ namespace tod_carla_api{
         std::string user_message_type = "ACTOR_STATUS";
         std::string status_id;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(actor_status, user_message_type, actor_id, status_id)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(actor_status, user_message_type, status_id)
 
 
     /* OMNET --> CARLA*/
