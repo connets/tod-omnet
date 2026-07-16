@@ -19,8 +19,10 @@
 
 #include "messages/TodMessages_m.h"
 #include "carlanet/CarlaInetMobility.h"
+
 using namespace omnetpp;
 using namespace inet;
+using namespace std;
 
 
 class instructionRTTNetworkFilter : public cObjectResultFilter{
@@ -57,9 +59,10 @@ private:
     const char *actorId;
     const int CREATION_STATUS_DATA_MSG_KIND = 2;
     bool zeroDelay;
-    uint64_t frameCounter = 0;   // It resets in each flush of the status update
+    uint64_t frameCounter = 0; // It resets in each flush of the status update
 
-    std::vector<Packet*> sensorBuffer;
+    vector<Packet*> sensorBuffer;
+    set<uint64_t> streamsThisFrame;
 
 protected:
     QuicSocket socket;
@@ -68,6 +71,7 @@ protected:
 
 private:
     virtual void applyZeroDelay();
+    virtual void createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, string statusId, uint64_t frameId, string carlaID);
 
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }

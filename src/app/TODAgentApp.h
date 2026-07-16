@@ -21,7 +21,7 @@
 
 using namespace omnetpp;
 using namespace inet;
-
+using namespace std;
 
 class ProcessStatusTimeFilter : public cObjectResultFilter{
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
@@ -44,21 +44,29 @@ private:
 
     bool reassembleStatusPacket(string actorId, string statusId, int numFragments); //returns true if all fragments have been received
 
+    struct SensorAcc
+    {
+        int arrived = 0;
+        int total = 0;
+    };
+
     struct FrameAcc
     {
-        int expected = -1;
-        int arrived = 0;
+        vector<uint64_t> expectedStreams;              // List of all streams for this frame
+        map<uint64_t, SensorAcc> statsPerStream;       // For each stream saves the stats of the specific sensor
     };
-    std::map<uint64_t, FrameAcc> frameAcc;
-    uint64_t lastClosedFrame = 0;   // closing frame id to ignore all other packets
+
+    map<uint64_t, FrameAcc> frameStats;                // Stats for each frame
+    uint64_t lastClosedFrame = 0;                      // Closing frame id to ignore all other packets
 
     void countSensorData(Packet *packet);
     double computeLossRatio(uint64_t frameId);
 
 protected:
-    QuicSocket socket;                                      // listening socket
-    std::vector<QuicSocket*> clientSockets;                 // accepted connections
-    std::map<std::string, QuicSocket*> replySocketByActor;  // connection to reply on, per actor
+    QuicSocket socket;                                 // listening socket
+    vector<QuicSocket*> clientSockets;                 // accepted connections
+    map<string, QuicSocket*> replySocketByActor;       // connection to reply on, per actor
+
     // statistics
     int numSent = 0;
     int numReceived = 0;
@@ -81,6 +89,7 @@ protected:
 
     /* QUIC socket callbacks (QuicSocket::ICallback) */
     virtual void socketDataArrived(QuicSocket *socket, Packet *packet) override;
+    virtual void socketDatagramArrived(QuicSocket *socket, Packet *packet) override;   // RFC 9221: dati-sensore
     virtual void socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo) override;
     virtual void socketConnectionAvailable(QuicSocket *socket) override;
     virtual void socketEstablished(QuicSocket *socket) override { }

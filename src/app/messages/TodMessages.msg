@@ -37,13 +37,13 @@ class TODMessage extends FieldsChunk{
 
 class TodStatusUpdateMessage extends TODMessage{
     messageType = STATUS;
-    int totalFragments;
-    int fragmentNum;
 	string actorId;
 	string statusId;
 	simtime_t collectionTime;
-	uint64_t frameId;            // id del frame (generato dal veicolo al flush)
-	int expectedSensorData;     // quanti dati-sensore il veicolo spedisce in questo frame (denominatore della perdita)
+	uint64_t frameId;
+	uint64_t expectedStreams[];  // streamId that are fetched in this frame
+	int totalFragments;
+	int fragmentNum;
 }
 
 class TodInstructionMessage extends TODMessage{
@@ -54,7 +54,7 @@ class TodInstructionMessage extends TODMessage{
     simtime_t instructionCreationTime;
 	string actorId;
 	string instructionId;
-	double lossRatio;           // frazione di dati-sensore mancanti su cui e' stata calcolata l'istruzione (0=frame completo)
+	double lossRatio;
 }
 
 packet ProcessedStatusMessage{
@@ -65,6 +65,6 @@ packet ProcessedStatusMessage{
 	simtime_t collectionTime;
 	L3Address srcAddress;
 	int srcPort;
-	uint64_t frameId;           // frame a cui si riferisce: serve al deadline per leggere arrivati/attesi
+	uint64_t frameId;
 }
 
