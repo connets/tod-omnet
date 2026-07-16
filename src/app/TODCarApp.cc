@@ -28,17 +28,19 @@ using namespace inet;
 
 Define_Module(TODCarApp);
 
-void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) {
+void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details)
+{
     auto packet = check_and_cast<Packet*>(object);
     simtime_t retrievalTime = packet->peekData<TodStatusUpdateMessage>()->getCollectionTime();
 
     auto instrucionDelay = simTime() - retrievalTime;
 
-    fire(this, simTime(), instrucionDelay,  details );
+    fire(this, simTime(), instrucionDelay,  details);
 }
 
 
-void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) {
+void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details)
+{
     auto packet = check_and_cast<Packet*>(object);
     auto instructionMessage = packet->peekData<TodInstructionMessage>();
     auto uplinkRtt = instructionMessage->getStatusProcessingTime() - instructionMessage->getStatusCreationTime();
@@ -46,10 +48,11 @@ void instructionRTTNetworkFilter::receiveSignal(cResultFilter *prev, simtime_t_c
 
     auto rtt = downLinkRtt + uplinkRtt;
 
-    fire(this, simTime(), rtt,  details );
+    fire(this, simTime(), rtt,  details);
 }
 
-void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) {
+void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details)
+{
     auto packet = check_and_cast<Packet*>(object);
     simtime_t retrievalTime = packet->peekData<TodInstructionMessage>()->getStatusDataCollectionTime();
 
@@ -65,18 +68,17 @@ TODCarApp::~TODCarApp()
     cancelAndDelete(updateStatusSelfMessage);
 }
 
-void TODCarApp::initialize(int stage) {
+void TODCarApp::initialize(int stage)
+{
     ApplicationBase::initialize(stage);
-    if (stage == INITSTAGE_LOCAL) {
-
+    if (stage == INITSTAGE_LOCAL)
+    {
         zeroDelay = par("zeroDelay").boolValue();
-
         EV_INFO << "setting zero delay to => " << zeroDelay << endl;
 
         auto mobilityModule = omnetpp::check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
 
-        sensorBuffer.clear(); // Cleanup of sensor's array
-
+        sensorBuffer.clear();
         carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(
                 getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
 
@@ -88,7 +90,8 @@ void TODCarApp::initialize(int stage) {
 
 void TODCarApp::refreshDisplay() const{}
 
-void TODCarApp::finish() {
+void TODCarApp::finish()
+{
     ApplicationBase::finish();
 }
 
@@ -117,22 +120,36 @@ void TODCarApp::handleStopOperation(LifecycleOperation *operation)
 
 void TODCarApp::handleCrashOperation(LifecycleOperation *operation)
 {
-    if (operation->getRootModule() != getContainingNode(this)) socket.destroy();
+    if (operation->getRootModule() != getContainingNode(this))
+        socket.destroy();
+
     socket.setCallback(nullptr);
 }
 
 
 void TODCarApp::handleMessageWhenUp(cMessage* msg)
 {
-    if (msg->isSelfMessage()){
-        if (msg == updateStatusSelfMessage){
+    if (msg->isSelfMessage())
+    {
+        if (msg == updateStatusSelfMessage)
+        {
             retrieveStatusData();
             send(new cMessage("collectSensors"), "toManager");
             scheduleAfter(statusUpdateInterval, msg);
-        } else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND) sendUpdateStatusPacket(simTime());
+        }
+        else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND)
+        {
+            sendUpdateStatusPacket(simTime());
+        }
     }
-    else if (msg->arrivedOn("fromManager")) bufferizeSensorData(msg);
-    else if(socket.belongsToSocket(msg)) socket.processMessage(msg);
+    else if (msg->arrivedOn("fromManager"))
+    {
+        bufferizeSensorData(msg);
+    }
+    else if(socket.belongsToSocket(msg))
+    {
+        socket.processMessage(msg);
+    }
 }
 
 
@@ -152,7 +169,6 @@ void TODCarApp::retrieveStatusData()
 void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
 {
     zeroDelay = par("zeroDelay").boolValue();
-
     EV_INFO << "TODCarApp::sendUpdateStatusPacket setting zero delay to => " << zeroDelay << endl;
 
     // Get status id form CARLA API
@@ -161,10 +177,9 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
 
     EV_INFO << "TODCarApp::sendUpdateStatusPacket zeroDelay "<< zeroDelay << endl;
 
-    if (zeroDelay){
-        carlaCommunicationManager->getActorStatusZeroDelay(carlaID);
-        for (auto pk : sensorBuffer) delete pk;
-        sensorBuffer.clear();
+    if (zeroDelay)
+    {
+        applyZeroDelay();
         return;
     }
 
@@ -173,14 +188,10 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
     L3AddressResolver().tryResolve(par("destAddress"), destAddress);
     EV_INFO << "Send status update for id: "<< carlaID << " to: "<< destAddress<<":"<<destPort<< endl;
 
-    // Status update Message
     int statusMessageLength = par("statusMessageLength").intValue();
     EV_INFO << "Send status update message" << endl;
 
-    // frameId di questo invio + numero di dati-sensore che sto per spedire:
-    // e' il denominatore su cui l'agente calcolera' la percentuale di perdita.
     uint64_t frameId = ++frameCounter;
-    int expectedSensorData = sensorBuffer.size();
 
     auto packet = new Packet((string("StatusUpdate_")+statusId).c_str());
     auto data = makeShared<TodStatusUpdateMessage>();
@@ -188,8 +199,6 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
     data->setActorId(carlaID.c_str());
     data->setStatusId(statusId.c_str());
     data->setCollectionTime(dataRetrievalTime);
-    data->setFrameId(frameId);
-    data->setExpectedSensorData(expectedSensorData);
 
     auto creationTimeTag = data->addTag<CreationTimeTag>();
     creationTimeTag->setCreationTime(simTime());
@@ -200,17 +209,17 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
 
     sendUpdatePacket(packet);
 
-    // Sensor data: marcati con lo STESSO frameId dello status, cosi' l'agente li correla
-    for(; not sensorBuffer.empty(); sensorBuffer.pop_back()) sendSensorPacket(sensorBuffer.back(), frameId);
+    for(; not sensorBuffer.empty(); sensorBuffer.pop_back())
+    {
+        sendSensorPacket(sensorBuffer.back(), frameId);
+    }
 }
-
 
 void TODCarApp::socketDataArrived(QuicSocket *socket, Packet *packet)
 {
     emit(packetReceivedSignal, packet);
     processPacket(packet);
     delete packet;
-    numReceived++;
 }
 
 
@@ -220,7 +229,8 @@ void TODCarApp::socketEstablished(QuicSocket *socket)
     scheduleAt(simTime() + statusUpdateInterval, updateStatusSelfMessage);
 }
 
-void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo){
+void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo)
+{
     socket->recv(dataInfo->getAvaliableDataSize(), dataInfo->getStreamID());
 }
 
@@ -237,8 +247,7 @@ void TODCarApp::sendSensorPacket(Packet *pk, uint64_t frameId)
 
     EV_INFO << "TODCarApp: send data on stream " << streamId << " (frame " << frameId << ")" << endl;
     emit(packetSentSignal, pk);
-    socket.send(pk, streamId);
-    numSent++;
+    socket.sendDatagram(pk);
 }
 
 void TODCarApp::bufferizeSensorData(cMessage* msg)
@@ -251,7 +260,6 @@ void TODCarApp::sendUpdatePacket(Packet *packet)
 {
     emit(packetSentSignal, packet);
     socket.send(packet, 0);
-    numSent++;
 }
 
 
@@ -268,4 +276,16 @@ void TODCarApp::processPacket(Packet *pk)
         else EV_WARN << "Received an unexpected TOD Message " <<  pk->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
     }
     else EV_WARN << "Received an unexpected packet "<< pk->getName() <<endl;
+}
+
+// Helper functions
+void TODCarApp::applyZeroDelay()
+{
+    carlaCommunicationManager->getActorStatusZeroDelay(carlaID);
+    for (auto pk : sensorBuffer)
+    {
+        delete pk;
+    }
+
+    sensorBuffer.clear();
 }

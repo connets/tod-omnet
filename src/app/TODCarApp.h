@@ -66,10 +66,8 @@ protected:
     L3Address destAddress;
     int destPort;
 
-    // statistics
-    int numSent = 0;
-    int numReceived = 0;
-
+private:
+    virtual void applyZeroDelay();
 
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
