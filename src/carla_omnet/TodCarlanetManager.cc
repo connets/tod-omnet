@@ -30,7 +30,6 @@ string TodCarlanetManager::getActorStatus(string actorId){
 
     tod_carla_api::actor_status response = sendToAndGetFromCarla_actor_generic_message<tod_carla_api::actor_status_update, tod_carla_api::actor_status>(requestMsg);
 
-
     return response.status_id;
 }
 
@@ -43,7 +42,7 @@ void TodCarlanetManager::getActorStatusZeroDelay(string actorId){
 
 
 string TodCarlanetManager::computeInstruction(string actorId, string statusId, string agentId, double lossRatio){
-    EV_INFO << "Contact Carla for getting the instruction id (lossRatio=" << lossRatio << ")" << endl;
+    EV_INFO << "Contact Carla for getting the instruction id (lossRatio = " << lossRatio << ")" << endl;
 
     tod_carla_api::compute_instruction requestMsg;
     requestMsg.actor_id = actorId;

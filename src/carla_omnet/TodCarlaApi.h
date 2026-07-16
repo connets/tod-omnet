@@ -22,7 +22,6 @@ namespace tod_carla_api{
     /* CARLA --> OMNET */
     struct actor_status {
         std::string user_message_type = "ACTOR_STATUS";
-        std::string actor_id; //TODO: remove because is unused
         std::string status_id;
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(actor_status, user_message_type, actor_id, status_id)
@@ -34,7 +33,7 @@ namespace tod_carla_api{
         std::string actor_id;
         std::string agent_id;
         std::string status_id;
-        double loss_ratio = 0.0;   // frazione di dati-sensore mancanti nel frame (0 = completo)
+        double loss_ratio = 0.0;
     };
     NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(compute_instruction, user_message_type, actor_id, agent_id, status_id, loss_ratio)
 
