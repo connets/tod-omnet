@@ -27,7 +27,10 @@ class SensorDataRequest extends FieldsChunk
 class SensorDataResponse extends FieldsChunk
 {
     uint64_t streamId;
+    uint64_t frameId;
+    uint64_t fragmentNum;
+    uint64_t totalFragments;
+
     string sensorType;
     simtime_t collectionTime;
-    uint64_t frameId;        // frame di appartenenza (scritto dal veicolo al flush): lega il dato allo status
 }
