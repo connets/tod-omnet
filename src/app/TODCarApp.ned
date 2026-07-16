@@ -9,16 +9,15 @@ simple TODCarApp like IApp
         @class(TODCarApp);
         @display("i=block/app");
 
-        string agentConfiguration = default("normal");  	//this must be a type supported by Carla client
+        string agentConfiguration = default("normal");
         string destAddress = default("server");
         int destPort = default(3000);
         volatile int statusMessageLength @unit(byte) = default(8kB);
-        //volatile int frameRate = default(60);
-        //volatile double statusUpdateInterval  = 1 / frameRate;
+        int datagramChunkSize @unit(B) = default(1000B);  // It has to be less then max_datagram_size
         volatile double statusUpdateInterval @unit(s)  = default(0.016s);
 
-        volatile double encodingImageTime @unit(s) = default(10ms); //time to encode image
-        volatile double collectionDataTime @unit(s) = default(15ms); //time to collect sensors data
+        volatile double encodingImageTime @unit(s) = default(10ms);
+        volatile double collectionDataTime @unit(s) = default(15ms);
 
         bool zeroDelay = default(false);
 
@@ -37,7 +36,7 @@ simple TODCarApp like IApp
         input socketIn;
         output socketOut;
 
-        input fromManager; // Datas from sensors (handled by sensorManager)
-        output toManager;  // Datas request from todCarApp to sensors (handled by sensorManager)
+        input fromManager; // Data from sensors (handled by sensorManager)
+        output toManager;  // Data request from todCarApp to sensors (handled by sensorManager)
 }
 
