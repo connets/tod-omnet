@@ -1,835 +1,139 @@
---- a/src/inet/transportlayer/quic/AppSocket.cc	2026-07-15 18:43:46.923838823 +0200
-+++ b/src/inet/transportlayer/quic/AppSocket.cc	2026-07-15 19:53:06.044557348 +0200
-@@ -74,6 +74,15 @@
-     sendPacket(pkt);
- }
- 
-+void AppSocket::sendDatagram(Ptr<const Chunk> data)
-+{
-+    // RFC 9221: consegna immediata all'app (indicazione dedicata QUIC_I_DATAGRAM).
-+    Packet *pkt = new Packet("datagram");
-+    pkt->setKind(QUIC_I_DATAGRAM);
-+    pkt->insertAtBack(data);
-+    sendPacket(pkt);
-+}
-+
- void AppSocket::sendDataNotification(uint64_t streamId, uint64_t dataSize)
- {
-     EV_INFO << "Notifying app: quic has data ready to read" << endl;
---- a/src/inet/transportlayer/quic/AppSocket.h	2026-07-15 18:43:46.924101580 +0200
-+++ b/src/inet/transportlayer/quic/AppSocket.h	2026-07-15 19:53:00.004558293 +0200
-@@ -28,6 +28,7 @@
-     virtual void processAppCommand(cMessage *msg);
-     virtual void sendEstablished();
-     virtual void sendData(Ptr<const Chunk> data);
-+    virtual void sendDatagram(Ptr<const Chunk> data);   // RFC 9221: consegna un datagramma all'app
-     virtual void sendIndication(Indication *indication);
-     virtual void sendIndications(std::list<Indication *> indications);
-     virtual void sendPacket(Packet *pkt);
---- a/src/inet/transportlayer/quic/Connection.cc	2026-07-15 18:43:46.924149729 +0200
-+++ b/src/inet/transportlayer/quic/Connection.cc	2026-07-15 20:00:27.416489055 +0200
-@@ -9,6 +9,7 @@
- #include "inet/transportlayer/contract/quic/QuicCommand_m.h"
- #include "packet/PacketHeader_m.h"
- #include "packet/FrameHeader_m.h"
-+#include "packet/QuicDatagramFrame.h"
- #include "inet/common/socket/SocketTag_m.h"
- #include "AppSocket.h"
- #include "connectionstate/ConnectionState.h"
-@@ -77,6 +78,7 @@
-     packetBuilder = new PacketBuilder(&controlQueue, scheduler, receivedPacketsAccountants);
-     packetBuilder->setSrcConnectionId(srcConnectionIds[0]);
-     packetBuilder->readParameters(quicSimpleMod);
-+    packetBuilder->setDatagramQueue(&datagramQueue);
- 
-     congestionController = CongestionControlFactory::getInstance()->createCongestionController(quicSimpleMod->par("congestionControl"));
-     congestionController->readParameters(quicSimpleMod);
-@@ -164,6 +166,43 @@
-     }
- }
- 
-+void Connection::newDatagram(Ptr<const Chunk> data)
-+{
-+    // RFC 9221: costruisce un DATAGRAM frame con il payload applicativo e lo accoda.
-+    // Non passa da uno Stream: nessun offset, nessun ordinamento, nessuna ritrasmissione.
-+
-+    // RFC 9221: se il peer non ha annunciato max_datagram_frame_size (=0) non si inviano datagram.
-+    uint64_t peerMax = remoteTransportParameters->maxDatagramFrameSize;
-+    if (peerMax == 0) {
-+        EV_WARN << "Connection::newDatagram: peer does not support DATAGRAM frames "
-+                   "(max_datagram_frame_size=0), dropping" << endl;
-+        return;
-+    }
-+
-+    auto header = makeShared<DatagramFrameHeader>();
-+    header->setLength(B(data->getChunkLength()).get());
-+    header->calcChunkLength();
-+
-+    auto frame = new QuicDatagramFrame(header, data);
-+
-+    // RFC 9221: non inviare un DATAGRAM frame piu' grande del max_datagram_frame_size del peer.
-+    if ((uint64_t) frame->getSize() > peerMax) {
-+        EV_WARN << "Connection::newDatagram: frame size " << frame->getSize()
-+                << " > peer max_datagram_frame_size " << peerMax << ", dropping" << endl;
-+        delete frame;
-+        return;
-+    }
-+
-+    datagramQueue.push_back(frame);
-+    sendPackets();
-+}
-+
-+void Connection::processReceivedDatagram(Ptr<const Chunk> data)
-+{
-+    // RFC 9221: consegna immediata all'app, senza reassembly ne' ordinamento.
-+    appSocket->sendDatagram(data);
-+}
-+
- Stream *Connection::findOrCreateStream(uint64_t streamId)
- {
-     auto it = streamMap.find(streamId);
---- a/src/inet/transportlayer/quic/Connection.h	2026-07-15 18:43:46.924398816 +0200
-+++ b/src/inet/transportlayer/quic/Connection.h	2026-07-15 19:49:19.724592877 +0200
-@@ -74,6 +74,11 @@
-      */
-     void newStreamData(uint64_t streamId, Ptr<const Chunk> data);
- 
-+    // RFC 9221: accoda un datagramma applicativo inaffidabile per l'invio (no stream/offset).
-+    void newDatagram(Ptr<const Chunk> data);
-+    // RFC 9221: consegna all'app un datagramma ricevuto.
-+    void processReceivedDatagram(Ptr<const Chunk> data);
-+
-     void processReceivedData(uint64_t streamId, uint64_t offset, Ptr<const Chunk> data);
-     void accountReceivedPacket(uint64_t packetNumber, bool ackEliciting, PacketNumberSpace space, bool isIBitSet);
-     void onMaxDataFrameReceived(uint64_t maxData);
-@@ -158,6 +163,10 @@
-         return &controlQueue;
-     }
- 
-+    std::vector<QuicFrame *> *getDatagramQueue() {
-+        return &datagramQueue;
-+    }
-+
-     Quic *getModule() {
-         return quicSimpleMod;
-     }
-@@ -209,6 +218,7 @@
-     ConnectionState *connectionState;
- 
-     std::vector<QuicFrame *> controlQueue;
-+    std::vector<QuicFrame *> datagramQueue;   // RFC 9221: datagrammi in attesa di invio (inaffidabili, non ritrasmessi)
-     PacketBuilder *packetBuilder;
-     IScheduler *scheduler;
-     std::map<uint64_t, Stream *> streamMap;
---- a/src/inet/transportlayer/quic/PacketBuilder.cc	2026-07-15 18:43:46.924446356 +0200
-+++ b/src/inet/transportlayer/quic/PacketBuilder.cc	2026-07-15 20:00:00.428493265 +0200
-@@ -168,6 +168,7 @@
-         transportParametersExt->setInitialMaxStreamDataBidiLocal(tp->initialMaxStreamData);
-         transportParametersExt->setInitialMaxStreamDataBidiRemote(tp->initialMaxStreamData);
-         transportParametersExt->setInitialMaxStreamDataUni(tp->initialMaxStreamData);
-+        transportParametersExt->setMaxDatagramFrameSize(tp->maxDatagramFrameSize);   // RFC 9221
-         transportParametersExt->calcChunkLength();
-         frame->setData(transportParametersExt);
-     }
-@@ -221,6 +222,38 @@
-     return packet;
- }
- 
-+QuicPacket *PacketBuilder::addFramesFromDatagramQueue(QuicPacket *packet, int maxPacketSize)
-+{
-+    if (datagramQueue == nullptr)
-+        return packet;
-+
-+    // capacita' di un pacchetto vuoto (senza header dei frame gia' presenti)
-+    int emptyCapacity = maxPacketSize - (int) getPacketSize(nullptr);
-+
-+    while (!datagramQueue->empty()) {
-+        auto datagramFrame = datagramQueue->front();
-+        int datagramFrameSize = (int) datagramFrame->getSize();   // header + payload
-+
-+        // RFC 9221: un DATAGRAM frame non e' frammentabile. Se non entra nemmeno in un
-+        // pacchetto vuoto va SCARTATO (l'app deve dimensionarlo <= max_datagram_frame_size).
-+        if (datagramFrameSize > emptyCapacity) {
-+            EV_WARN << "PacketBuilder: datagram too large (" << datagramFrameSize
-+                    << " > " << emptyCapacity << "), dropped" << endl;
-+            delete datagramFrame;
-+            datagramQueue->erase(datagramQueue->begin());
-+            continue;
-+        }
-+        // Non entra nel pacchetto corrente (gia' parzialmente pieno): lo mandiamo nel prossimo.
-+        if ((maxPacketSize - (int) getPacketSize(packet)) < datagramFrameSize) {
-+            return packet;
-+        }
-+        EV_DEBUG << "PacketBuilder: insert datagram frame, size=" << datagramFrameSize << endl;
-+        packet = addFrameToPacket(packet, datagramFrame);
-+        datagramQueue->erase(datagramQueue->begin());
-+    }
-+    return packet;
-+}
-+
- QuicPacket *PacketBuilder::addFrameToPacket(QuicPacket *packet, QuicFrame *frame, bool skipPacketNumber)
- {
-     if (packet == nullptr) {
-@@ -255,6 +288,9 @@
-     //First add frames from controlQueue in Packet
-     packet = addFramesFromControlQueue(packet, maxPacketSize);
- 
-+    // RFC 9221: poi i DATAGRAM frame inaffidabili in coda (es. dati-sensore)
-+    packet = addFramesFromDatagramQueue(packet, maxPacketSize);
-+
-     // check if we would like to bundle an ack frame
-     if (receivedPacketsAccountant[PacketNumberSpace::ApplicationData]->hasNewAckInfoAboutAckElicitings() || (receivedPacketsAccountant[PacketNumberSpace::ApplicationData]->hasNewAckInfo() && bundleAckForNonAckElicitingPackets)) {
-         // if the packet is already ack-eliciting (due to a control frame), add an ack frame
---- a/src/inet/transportlayer/quic/PacketBuilder.h	2026-07-15 18:43:46.924655143 +0200
-+++ b/src/inet/transportlayer/quic/PacketBuilder.h	2026-07-15 19:50:17.092583997 +0200
-@@ -31,6 +31,11 @@
- 
-     void readParameters(cModule *module);
- 
-+    // RFC 9221: coda dei DATAGRAM frame da inviare (di proprieta' della Connection).
-+    void setDatagramQueue(std::vector<QuicFrame*> *queue) {
-+        this->datagramQueue = queue;
-+    }
-+
-     /**
-      * Builds a regular 1-RTT packet, that may contain
-      * (1) an ack frame,
-@@ -83,6 +88,7 @@
- 
- private:
-     std::vector<QuicFrame*> *controlQueue;
-+    std::vector<QuicFrame*> *datagramQueue = nullptr;   // RFC 9221
-     IScheduler *scheduler;
-     ReceivedPacketsAccountant **receivedPacketsAccountant;
- 
-@@ -100,6 +106,7 @@
-     Ptr<OneRttPacketHeader> createOneRttHeader();
-     Ptr<ZeroRttPacketHeader> createZeroRttHeader();
-     QuicPacket *addFramesFromControlQueue(QuicPacket *packet, int maxPacketSize);
-+    QuicPacket *addFramesFromDatagramQueue(QuicPacket *packet, int maxPacketSize);
-     QuicPacket *addFrameToPacket(QuicPacket *packet, QuicFrame *frame, bool skipPacketNumber=false);
-     size_t getPacketSize(QuicPacket *packet);
-     QuicFrame *createPingFrame();
---- a/src/inet/transportlayer/quic/Quic.ned	2026-07-15 18:43:46.925950008 +0200
-+++ b/src/inet/transportlayer/quic/Quic.ned	2026-07-15 20:00:08.892491952 +0200
-@@ -205,6 +205,7 @@
- 		// Flow Control
-         int initialMaxData @unit(B) = default(15MB); // Connection level flow control credit. Used as own and peer's value.
-         int initialMaxStreamData @unit(B) = default(6MB); // Stream level flow control credit for any stream (unidirectional, bidirectional local and remote). Used as own and peer's value.
-+        int maxDatagramFrameSize @unit(B) = default(1200B); // RFC 9221: max size of a DATAGRAM frame this endpoint accepts (advertised to the peer). 0 disables DATAGRAM support.
-         double maxDataFrameThreshold @unit(B) = default(0.5*initialMaxData); // Defines when MaxDataFrame in ConnectionFlowControl will be send.
-         double maxStreamDataFrameThreshold @unit(B) = default(0.5*initialMaxStreamData); // Defines when MaxStreamDataFrame in StreamFlowControl will be send.
-         bool roundConsumedDataValue = default(false); // If true, FlowControlResponder rounds consumedData in streamRcvBuffer to the next packetSize.
---- a/src/inet/transportlayer/quic/TransportParameters.cc	2026-07-15 18:43:46.927159583 +0200
-+++ b/src/inet/transportlayer/quic/TransportParameters.cc	2026-07-15 19:59:55.784493999 +0200
-@@ -14,12 +14,14 @@
- {
-     initialMaxData = quicSimpleMod->par("initialMaxData");
-     initialMaxStreamData = quicSimpleMod->par("initialMaxStreamData");
-+    maxDatagramFrameSize = quicSimpleMod->par("maxDatagramFrameSize");   // RFC 9221
- }
- 
- void TransportParameters::readExtension(Ptr<const TransportParametersExtension> transportParametersExt)
- {
-     initialMaxData = transportParametersExt->getInitialMaxData();
-     initialMaxStreamData = transportParametersExt->getInitialMaxStreamDataUni();
-+    maxDatagramFrameSize = transportParametersExt->getMaxDatagramFrameSize();   // RFC 9221
-     if (initialMaxStreamData != transportParametersExt->getInitialMaxStreamDataBidiLocal()
-      || initialMaxStreamData != transportParametersExt->getInitialMaxStreamDataBidiRemote()) {
-         EV_WARN << "inial_max_stream_data parameters not equal in the received transport parameter. Use only initial_max_stream_data_uni for all streams." << endl;
---- a/src/inet/transportlayer/quic/TransportParameters.h	2026-07-15 18:43:46.927382491 +0200
-+++ b/src/inet/transportlayer/quic/TransportParameters.h	2026-07-15 19:59:46.340495480 +0200
-@@ -26,6 +26,7 @@
- 
-     uint64_t initialMaxData = 0;
-     uint64_t initialMaxStreamData = 0;
-+    uint64_t maxDatagramFrameSize = 0;   // RFC 9221: max dimensione di un DATAGRAM frame accettato (0 = disabilitati)
- };
- 
- } /* namespace quic */
---- a/src/inet/transportlayer/quic/connectionstate/ConnectionState.cc	2026-07-15 18:43:46.930725418 +0200
-+++ b/src/inet/transportlayer/quic/connectionstate/ConnectionState.cc	2026-07-15 19:51:49.700569236 +0200
-@@ -25,6 +25,8 @@
-             return processConnectAppCommand(msg);
-         case QUIC_C_SEND: // send
-             return processSendAppCommand(msg);
-+        case QUIC_C_SEND_DATAGRAM: // RFC 9221: invio datagramma inaffidabile
-+            return processSendDatagramAppCommand(msg);
-         case QUIC_C_RECEIVE:
-             return processRecvAppCommand(msg);
-         case QUIC_C_CONNECT_AND_SEND: // 0-RTT connection setup
-@@ -51,6 +53,11 @@
-     throw cRuntimeError("Send app command unexpected in the current state");
- }
- 
-+ConnectionState *ConnectionState::processSendDatagramAppCommand(cMessage *msg)
-+{
-+    throw cRuntimeError("Send datagram app command unexpected in the current state");
-+}
-+
- ConnectionState *ConnectionState::processRecvAppCommand(cMessage *msg)
- {
-     throw cRuntimeError("Send data to app command unexpected in the current state");
-@@ -188,6 +195,8 @@
-     switch (frameHeader->getFrameType()) {
-         case FRAME_HEADER_TYPE_STREAM:
-             return processStreamFrame(staticPtrCast<const StreamFrameHeader>(frameHeader), pkt);
-+        case FRAME_HEADER_TYPE_DATAGRAM:   // RFC 9221
-+            return processDatagramFrame(staticPtrCast<const DatagramFrameHeader>(frameHeader), pkt);
-         case FRAME_HEADER_TYPE_ACK:
-             return processAckFrame(staticPtrCast<const AckFrameHeader>(frameHeader), pnSpace);
-         case FRAME_HEADER_TYPE_MAX_DATA:
-@@ -221,6 +230,11 @@
-     throw cRuntimeError("Stream frame unexpected in the current state");
- }
- 
-+void ConnectionState::processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt)
-+{
-+    throw cRuntimeError("Datagram frame unexpected in the current state");
-+}
-+
- void ConnectionState::processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace)
- {
-     throw cRuntimeError("Ack frame unexpected in the current state");
---- a/src/inet/transportlayer/quic/connectionstate/ConnectionState.h	2026-07-15 18:43:46.930876527 +0200
-+++ b/src/inet/transportlayer/quic/connectionstate/ConnectionState.h	2026-07-15 19:51:25.952572977 +0200
-@@ -26,6 +26,7 @@
-     virtual ConnectionState *processAppCommand(cMessage *msg);
-     virtual ConnectionState *processConnectAppCommand(cMessage *msg);
-     virtual ConnectionState *processSendAppCommand(cMessage *msg);
-+    virtual ConnectionState *processSendDatagramAppCommand(cMessage *msg);   // RFC 9221
-     virtual ConnectionState *processCloseAppCommand(cMessage *msg);
-     virtual ConnectionState *processRecvAppCommand(cMessage *msg);
-     virtual ConnectionState *processConnectAndSendAppCommand(cMessage *msg);
-@@ -40,6 +41,7 @@
-     virtual bool containsFrame(Packet *pkt, enum FrameHeaderType frameType);
-     virtual void discardFrames(Packet *pkt);
-     virtual void processStreamFrame(const Ptr<const StreamFrameHeader>& frameHeader, Packet *pkt);
-+    virtual void processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt);   // RFC 9221
-     virtual void processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace);
-     virtual void processFrame(Packet *pkt, PacketNumberSpace pnSpace);
-     virtual void processMaxDataFrame(const Ptr<const MaxDataFrameHeader>& frameHeader);
---- a/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.cc	2026-07-15 18:43:46.931390490 +0200
-+++ b/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.cc	2026-07-15 19:52:53.500559310 +0200
-@@ -27,6 +27,16 @@
-     return this;
- }
- 
-+ConnectionState *EstablishedConnectionState::processSendDatagramAppCommand(cMessage *msg)
-+{
-+    // RFC 9221: invio di un datagramma inaffidabile (nessuno stream, nessun ordinamento).
-+    Packet *pkt = check_and_cast<Packet *>(msg);
-+    context->newDatagram(pkt->peekData());
-+    //delete pkt;
-+
-+    return this;
-+}
-+
- ConnectionState *EstablishedConnectionState::processCloseAppCommand(cMessage *msg)
- {
-     EV_DEBUG << "processCloseAppCommand in " << name << endl;
-@@ -70,6 +80,16 @@
-     context->processReceivedData(frameHeader->getStreamId(), frameHeader->getOffset(), data);
- }
- 
-+void EstablishedConnectionState::processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt)
-+{
-+    EV_DEBUG << "processDatagramFrame in " << name << endl;
-+
-+    // Il payload segue subito l'header; ne leggiamo ESATTAMENTE 'length' byte perche' un
-+    // DATAGRAM frame puo' essere seguito da altri frame nello stesso pacchetto QUIC.
-+    auto data = pkt->popAtFront(B(frameHeader->getLength()));
-+    context->processReceivedDatagram(data);
-+}
-+
- void EstablishedConnectionState::processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace)
- {
-     EV_DEBUG << "processAckFrame in " << name << endl;
---- a/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.h	2026-07-15 18:43:46.931563438 +0200
-+++ b/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.h	2026-07-15 19:51:59.760567666 +0200
-@@ -21,10 +21,12 @@
- 
-     virtual void start() override;
-     virtual ConnectionState *processSendAppCommand(cMessage *msg) override;
-+    virtual ConnectionState *processSendDatagramAppCommand(cMessage *msg) override;   // RFC 9221
-     virtual ConnectionState *processCloseAppCommand(cMessage *msg) override;
-     virtual ConnectionState *processZeroRttPacket(const Ptr<const ZeroRttPacketHeader>& packetHeader, Packet *pkt) override;
-     virtual ConnectionState *processOneRttPacket(const Ptr<const OneRttPacketHeader>& packetHeader, Packet *pkt) override;
-     virtual void processStreamFrame(const Ptr<const StreamFrameHeader>& frameHeader, Packet *pkt) override;
-+    virtual void processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt) override;   // RFC 9221
-     virtual void processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace) override;
-     virtual void processMaxDataFrame(const Ptr<const MaxDataFrameHeader>& frameHeader) override;
-     virtual void processMaxStreamDataFrame(const Ptr<const MaxStreamDataFrameHeader>& frameHeader) override;
---- a/src/inet/transportlayer/quic/packet/FrameHeader.msg	2026-07-15 18:43:46.942425495 +0200
-+++ b/src/inet/transportlayer/quic/packet/FrameHeader.msg	2026-07-15 19:59:40.932496339 +0200
-@@ -28,6 +28,7 @@
-     FRAME_HEADER_TYPE_CONNECTION_CLOSE_QUIC = 0x1c;
-     FRAME_HEADER_TYPE_CONNECTION_CLOSE_APP = 0x1d;
-     FRAME_HEADER_TYPE_HANDSHAKE_DONE = 0x1e;
-+    FRAME_HEADER_TYPE_DATAGRAM = 0x31;   // RFC 9221 DATAGRAM frame (variante "with Length", tipo 0x31)
- }
- 
- class FrameHeader extends FieldsChunk
-@@ -62,6 +63,33 @@
-     }
- }}
- 
-+//
-+// RFC 9221 DATAGRAM frame (variante 0x31, con campo Length).
-+// A differenza dello STREAM frame non ha streamId ne' offset: trasporta un
-+// singolo datagramma applicativo inaffidabile e non ordinato. Il payload
-+// (es. SensorDataResponse) viene messo come data del QuicDatagramFrame.
-+//
-+class DatagramFrameHeader extends FrameHeader
-+{
-+    frameType = FRAME_HEADER_TYPE_DATAGRAM;
-+    VariableLengthInteger length;   // lunghezza in byte del payload del datagramma
-+}
-+cplusplus(DatagramFrameHeader) {{
-+  public:
-+    static const size_t MAX_HEADER_SIZE = 1 + 8;
-+    static const size_t MIN_HEADER_SIZE = 1 + 1;
-+
-+    void calcChunkLength() {
-+        int64_t len = 1 + getVariableLengthIntegerSize(length);
-+        this->setChunkLength(B(len));
-+    }
-+    std::string str() const override {
-+        std::ostringstream os;
-+        os << "DATAGRAM[length=" << length << "]";
-+        return os.str();
-+    }
-+}}
-+
- struct AckRange
- {
-     VariableLengthInteger gap;
-@@ -234,6 +262,7 @@
-     VariableLengthInteger initialMaxStreamDataBidiLocal;
-     VariableLengthInteger initialMaxStreamDataBidiRemote;
-     VariableLengthInteger initialMaxStreamDataUni;
-+    VariableLengthInteger maxDatagramFrameSize;   // RFC 9221 (0 = datagram non supportati)
- }
- cplusplus(TransportParametersExtension) {{
-   public:
-@@ -241,7 +270,8 @@
-         int64_t len = getVariableLengthIntegerSize(initialMaxData) \
-                       + getVariableLengthIntegerSize(initialMaxStreamDataBidiLocal) \
-                       + getVariableLengthIntegerSize(initialMaxStreamDataBidiRemote) \
--                      + getVariableLengthIntegerSize(initialMaxStreamDataUni);
-+                      + getVariableLengthIntegerSize(initialMaxStreamDataUni) \
-+                      + getVariableLengthIntegerSize(maxDatagramFrameSize);
-         this->setChunkLength(B(len));
-     }
-     std::string str() const override {
---- a/src/inet/transportlayer/quic/packet/QuicDatagramFrame.cc	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/inet/transportlayer/quic/packet/QuicDatagramFrame.cc	2026-07-15 18:45:29.937189375 +0200
-@@ -0,0 +1,39 @@
-+//
-+// Copyright (C) 2019-2024 Timo Völker, Ekaterina Volodina
-+// Copyright (C) 2025 OpenSim Ltd.
+diff -urN inet-vanilla/examples/quic/datagram_test/DatagramTest.ned inet-patched/examples/quic/datagram_test/DatagramTest.ned
+--- a/examples/quic/datagram_test/DatagramTest.ned	1970-01-01 01:00:00.000000000 +0100
++++ b/examples/quic/datagram_test/DatagramTest.ned	2026-07-20 15:24:18.169805608 +0200
+@@ -0,0 +1,45 @@
 +//
 +// SPDX-License-Identifier: LGPL-3.0-or-later
 +//
-+
-+#include "QuicDatagramFrame.h"
-+
-+namespace inet {
-+namespace quic {
-+
-+QuicDatagramFrame::QuicDatagramFrame() { }
-+
-+QuicDatagramFrame::QuicDatagramFrame(Ptr<const DatagramFrameHeader> header, Ptr<const Chunk> data)
-+{
-+    // Chiamate esplicite (non deleghiamo al costruttore base QuicFrame(header,data))
-+    // cosi' la dispatch virtuale usa QuicDatagramFrame::setHeader e valorizza datagramHeader.
-+    this->setHeader(header);
-+    this->setData(data);
-+}
-+
-+QuicDatagramFrame::~QuicDatagramFrame() { }
-+
-+void QuicDatagramFrame::setHeader(Ptr<const FrameHeader> header)
-+{
-+    QuicFrame::setHeader(header);
-+    datagramHeader = dynamicPtrCast<const DatagramFrameHeader>(header);
-+}
-+
-+bool QuicDatagramFrame::equals(const QuicFrame *other)
-+{
-+    // Un datagramma e' inaffidabile e non ritrasmesso: non ha identita' di
-+    // ritrasmissione, quindi confrontiamo per identita' dell'oggetto.
-+    return this == other;
-+}
-+
-+} /* namespace quic */
-+} /* namespace inet */
---- a/src/inet/transportlayer/quic/packet/QuicDatagramFrame.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/inet/transportlayer/quic/packet/QuicDatagramFrame.h	2026-07-15 18:45:21.241190746 +0200
-@@ -0,0 +1,53 @@
-+//
-+// Copyright (C) 2019-2024 Timo Völker, Ekaterina Volodina
-+// Copyright (C) 2025 OpenSim Ltd.
-+//
-+// SPDX-License-Identifier: LGPL-3.0-or-later
++// Rete di test per i DATAGRAM QUIC (RFC 9221): sender -> router1 -=lossy=- router2 -> receiver.
++// La perdita e' applicata sul link router1<->router2 (PeriodicLossChannel, parametro per).
 +//
 +
-+#ifndef INET_APPLICATIONS_QUIC_PACKET_QUICDATAGRAMFRAME_H_
-+#define INET_APPLICATIONS_QUIC_PACKET_QUICDATAGRAMFRAME_H_
++package inet.examples.quic.datagram_test;
 +
-+#include "QuicFrame.h"
++import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
++import inet.node.inet.Router;
++import inet.node.inet.StandardHost;
++import inet.common.misc.PeriodicLossChannel;
 +
-+namespace inet {
-+namespace quic {
-+
-+//
-+// RFC 9221 DATAGRAM frame.
-+//
-+// Trasporta un singolo datagramma applicativo inaffidabile e non ordinato:
-+// niente stream, niente offset. Il payload (es. SensorDataResponse) e' salvato
-+// direttamente come data del frame (a differenza di QuicStreamFrame, che li
-+// recupera lazy dallo Stream).
-+//
-+// E' ack-eliciting e conta in-flight (default di QuicFrame::setHeader per i tipi
-+// non-ACK/CC/PADDING), quindi partecipa a RTT e congestion control. MA non viene
-+// mai RITRASMESSO: NON sovrascriviamo onFrameLost(), quindi resta il no-op della
-+// classe base QuicFrame::onFrameLost(). Questa e' esattamente la semantica RFC 9221.
-+//
-+class QuicDatagramFrame: public QuicFrame {
-+public:
-+    QuicDatagramFrame();
-+    QuicDatagramFrame(Ptr<const DatagramFrameHeader> header, Ptr<const Chunk> data);
-+    virtual ~QuicDatagramFrame();
-+
-+    virtual void setHeader(Ptr<const FrameHeader> header) override;
-+    virtual bool hasData() override { return true; }
-+    virtual bool equals(const QuicFrame *other) override;
-+
-+    virtual Ptr<const DatagramFrameHeader> getDatagramHeader() {
-+        return datagramHeader;
-+    }
-+
-+    // NB: nessun override di onFrameLost()/onFrameAcked(): un datagramma perso
-+    // NON viene ri-accodato -> nessuna ritrasmissione (a differenza dello stream).
-+
-+private:
-+    Ptr<const DatagramFrameHeader> datagramHeader = nullptr;
-+};
-+
-+} /* namespace quic */
-+} /* namespace inet */
-+
-+#endif /* INET_APPLICATIONS_QUIC_PACKET_QUICDATAGRAMFRAME_H_ */
---- a/src/inet/transportlayer/contract/quic/QuicCommand.msg	2026-07-15 18:43:46.948657838 +0200
-+++ b/src/inet/transportlayer/contract/quic/QuicCommand.msg	2026-07-15 19:49:02.916595650 +0200
-@@ -26,6 +26,7 @@
-     QUIC_C_RECEIVE = 6;
-     QUIC_C_ACCEPT = 7;
-     QUIC_C_CONNECT_AND_SEND = 8;
-+    QUIC_C_SEND_DATAGRAM = 9;   // invia un datagramma inaffidabile (RFC 9221), senza stream
- }
- 
- 
-@@ -48,6 +49,7 @@
-     QUIC_I_SENDQUEUE_DRAIN = 9;
-     QUIC_I_MSG_REJECTED = 10;
-     QUIC_I_NEW_TOKEN = 11;
-+    QUIC_I_DATAGRAM = 12;   // datagramma inaffidabile ricevuto (RFC 9221)
- }
- 
- //
---- a/src/inet/transportlayer/contract/quic/QuicSocket.cc	2026-07-15 18:43:46.949115102 +0200
-+++ b/src/inet/transportlayer/contract/quic/QuicSocket.cc	2026-07-15 19:53:38.508552178 +0200
-@@ -104,6 +104,13 @@
-     send(msg, 0);
- }
- 
-+void QuicSocket::sendDatagram(Packet *msg)
-+{
-+    // RFC 9221: nessuno stream, il comando dedicato instrada verso Connection::newDatagram.
-+    msg->setKind(QUIC_C_SEND_DATAGRAM);
-+    sendToQuic(msg);
-+}
-+
- void QuicSocket::connectAndSend(L3Address addr, uint16_t port, const char *token, Packet *msg, uint64_t streamId)
- {
-     if (streamId >= ( ((uint64_t)1) << 62)) {
-@@ -235,6 +242,15 @@
-             } else {
-                 delete msg;
-             }
-+            break;
-+        }
-+        case QUIC_I_DATAGRAM: {   // RFC 9221
-+            if (cb) {
-+                Packet *packet = check_and_cast<Packet*>(msg);
-+                cb->socketDatagramArrived(this, packet);
-+            } else {
-+                delete msg;
-+            }
-             break;
-         }
-         case QUIC_I_CLOSED: {
---- a/src/inet/transportlayer/contract/quic/QuicSocket.h	2026-07-15 18:43:46.949386900 +0200
-+++ b/src/inet/transportlayer/contract/quic/QuicSocket.h	2026-07-15 19:53:23.012554647 +0200
-@@ -61,6 +61,15 @@
-         virtual void socketDataArrived(QuicSocket* socket, Packet *packet) = 0;
- 
-         /**
-+         * RFC 9221: un datagramma inaffidabile e' arrivato all'app.
-+         * Non-pure (default vuoto) per non rompere i callback esistenti.
-+         *
-+         * @param socket The involved socket object.
-+         * @param packet The packet with the arrived datagram.
-+         */
-+        virtual void socketDatagramArrived(QuicSocket* socket, Packet *packet) { delete packet; }
-+
-+        /**
-          * Notifies that a new connection is available to accept. Called after
-          * a listen call and an incoming connection initiation.
-          *
-@@ -218,6 +227,14 @@
-     void send(Packet *msg) override;
- 
-     /**
-+     * RFC 9221: invia un datagramma inaffidabile (nessuno stream, nessun ordinamento,
-+     * nessuna ritrasmissione). Se non entra in un pacchetto QUIC viene scartato.
-+     *
-+     * @param msg The datagram to send.
-+     */
-+    void sendDatagram(Packet *msg);
-+
-+    /**
-      * Requests to receive data with the specified length from the specified
-      * stream from QUIC.
-      *
---- /dev/null
-+++ b/src/inet/applications/quicapp/QuicDatagramSender.h
-@@ -0,0 +1,53 @@
-+//
-+// SPDX-License-Identifier: LGPL-3.0-or-later
-+//
-+// Test app (RFC 9221): invia N datagrammi QUIC inaffidabili numerati.
-+//
-+
-+#ifndef __INET_QUIC_QUICDATAGRAMSENDER_H_
-+#define __INET_QUIC_QUICDATAGRAMSENDER_H_
-+
-+#include <omnetpp.h>
-+#include "inet/transportlayer/contract/quic/QuicSocket.h"
-+#include "inet/applications/base/ApplicationBase.h"
-+
-+using namespace omnetpp;
-+
-+namespace inet {
-+
-+class QuicDatagramSender : public ApplicationBase, public QuicSocket::ICallback
-+{
-+  public:
-+    virtual ~QuicDatagramSender();
-+
-+  protected:
-+    QuicSocket socket;
-+    cMessage *sendTimer = nullptr;
-+    long numDatagrams = 0;
-+    long datagramBytes = 0;
-+    simtime_t sendInterval;
-+    long seq = 0;
-+    long numSent = 0;
-+
-+    virtual void handleMessageWhenUp(cMessage *msg) override;
-+    virtual void handleStartOperation(LifecycleOperation *operation) override;
-+    virtual void handleStopOperation(LifecycleOperation *operation) override;
-+    virtual void handleCrashOperation(LifecycleOperation *operation) override;
-+    virtual void finish() override;
-+    virtual void sendOneDatagram();
-+
-+    virtual void socketEstablished(QuicSocket *socket) override;
-+    virtual void socketDatagramArrived(QuicSocket* socket, Packet *packet) override { delete packet; }
-+    virtual void socketDataArrived(QuicSocket* socket, Packet *packet) override { delete packet; }
-+    virtual void socketDataAvailable(QuicSocket* socket, QuicDataInfo *dataInfo) override { }
-+    virtual void socketConnectionAvailable(QuicSocket *socket) override { }
-+    virtual void socketClosed(QuicSocket *socket) override { }
-+    virtual void socketDestroyed(QuicSocket *socket) override { }
-+    virtual void socketSendQueueFull(QuicSocket *socket) override { }
-+    virtual void socketSendQueueDrain(QuicSocket *socket) override { }
-+    virtual void socketMsgRejected(QuicSocket *socket) override { }
-+};
-+
-+} //namespace
-+
-+#endif
---- /dev/null
-+++ b/src/inet/applications/quicapp/QuicDatagramSender.cc
-@@ -0,0 +1,86 @@
-+//
-+// SPDX-License-Identifier: LGPL-3.0-or-later
-+//
-+
-+#include "QuicDatagramSender.h"
-+#include "inet/networklayer/common/L3AddressResolver.h"
-+#include "inet/applications/base/ApplicationPacket_m.h"
-+
-+namespace inet {
-+
-+Define_Module(QuicDatagramSender);
-+
-+QuicDatagramSender::~QuicDatagramSender()
-+{
-+    cancelAndDelete(sendTimer);
-+}
-+
-+void QuicDatagramSender::handleStartOperation(LifecycleOperation *operation)
-+{
-+    numDatagrams = par("numDatagrams");
-+    datagramBytes = par("datagramBytes");
-+    sendInterval = par("sendInterval");
-+
-+    L3Address localAddress = L3AddressResolver().resolve(par("localAddress"));
-+    int localPort = par("localPort");
-+    L3Address connectAddress = L3AddressResolver().resolve(par("connectAddress"));
-+    int connectPort = par("connectPort");
-+
-+    socket.setOutputGate(gate("socketOut"));
-+    socket.bind(localAddress, localPort);
-+    socket.connect(connectAddress, connectPort);
-+    socket.setCallback(this);
-+
-+    sendTimer = new cMessage("sendTimer");
-+    EV_INFO << "QuicDatagramSender: connecting to " << connectAddress << ":" << connectPort << endl;
-+}
-+
-+void QuicDatagramSender::handleStopOperation(LifecycleOperation *operation)
-+{
-+    socket.close();
-+}
-+
-+void QuicDatagramSender::handleCrashOperation(LifecycleOperation *operation) { }
-+
-+void QuicDatagramSender::handleMessageWhenUp(cMessage *msg)
-+{
-+    if (msg->isSelfMessage()) {
-+        if (msg == sendTimer)
-+            sendOneDatagram();
-+    }
-+    else
-+        socket.processMessage(msg);
-+}
-+
-+void QuicDatagramSender::socketEstablished(QuicSocket *s)
-+{
-+    EV_INFO << "QuicDatagramSender: connection established, sending " << numDatagrams
-+            << " datagrams every " << sendInterval << endl;
-+    seq = 0;
-+    scheduleAfter(SimTime::ZERO, sendTimer);   // primo invio subito dopo l'handshake
-+}
-+
-+void QuicDatagramSender::sendOneDatagram()
-+{
-+    Packet *packet = new Packet("datagram");
-+    auto payload = makeShared<ApplicationPacket>();
-+    payload->setChunkLength(B(datagramBytes));
-+    payload->setSequenceNumber(seq);
-+    packet->insertAtBack(payload);
-+
-+    EV_INFO << "QuicDatagramSender: sendDatagram seq=" << seq << " (" << datagramBytes << "B)" << endl;
-+    socket.sendDatagram(packet);
-+    numSent++;
-+    seq++;
-+
-+    if (seq < numDatagrams)
-+        scheduleAfter(sendInterval, sendTimer);
-+}
-+
-+void QuicDatagramSender::finish()
-+{
-+    EV_INFO << "QuicDatagramSender: TOTAL datagrams sent = " << numSent << endl;
-+    recordScalar("datagramsSent", numSent);
-+}
-+
-+} //namespace
---- /dev/null
-+++ b/src/inet/applications/quicapp/QuicDatagramSender.ned
-@@ -0,0 +1,25 @@
-+//
-+// SPDX-License-Identifier: LGPL-3.0-or-later
-+//
-+
-+package inet.applications.quicapp;
-+
-+import inet.common.SimpleModule;
-+import inet.applications.contract.IApp;
-+
-+// Test app (RFC 9221): invia N datagrammi QUIC inaffidabili, numerati, a intervalli fissi.
-+simple QuicDatagramSender extends SimpleModule like IApp
++network DatagramTest
 +{
 +    parameters:
-+        @class(QuicDatagramSender);
-+        string localAddress = default("");
-+        int localPort = default(0);
-+        string connectAddress;
-+        int connectPort;
-+        int numDatagrams = default(20);          // quanti datagrammi inviare
-+        int datagramBytes @unit(B) = default(800B); // payload per datagramma
-+        double sendInterval @unit(s) = default(5ms); // intervallo tra due datagrammi
-+    gates:
-+        input socketIn;
-+        output socketOut;
++        double linkDelay @unit(s) = default(5ms);
++        double linkDatarate @unit(bps) = default(100Mbps);
++
++    types:
++        channel link extends PeriodicLossChannel
++        {
++            datarate = parent.linkDatarate;
++            delay = parent.linkDelay;
++            per = default(0);
++        }
++        channel idealLink extends ned.DatarateChannel
++        {
++            datarate = 1000Mbps;
++            delay = 1ms;
++            per = 0;
++        }
++    submodules:
++        configurator: Ipv4NetworkConfigurator { @display("p=222,32"); }
++        sender: StandardHost { @display("p=57,137"); }
++        router1: Router { @display("p=146,137"); }
++        router2: Router { @display("p=305,137"); }
++        receiver: StandardHost { @display("p=390,137"); }
++
++    connections:
++        sender.pppg++ <--> idealLink <--> router1.pppg++;
++        router1.pppg++ <--> link <--> router2.pppg++;
++        router2.pppg++ <--> idealLink <--> receiver.pppg++;
 +}
---- /dev/null
-+++ b/src/inet/applications/quicapp/QuicDatagramReceiver.h
-@@ -0,0 +1,49 @@
-+//
-+// SPDX-License-Identifier: LGPL-3.0-or-later
-+//
-+// Test app (RFC 9221): riceve datagrammi QUIC inaffidabili e logga il numero di sequenza.
-+//
+diff -urN inet-vanilla/examples/quic/datagram_test/omnetpp.ini inet-patched/examples/quic/datagram_test/omnetpp.ini
+--- a/examples/quic/datagram_test/omnetpp.ini	1970-01-01 01:00:00.000000000 +0100
++++ b/examples/quic/datagram_test/omnetpp.ini	2026-07-20 15:31:42.663965793 +0200
+@@ -0,0 +1,80 @@
++[General]
++network = inet.examples.quic.datagram_test.DatagramTest
++sim-time-limit = 5s
 +
-+#ifndef __INET_QUIC_QUICDATAGRAMRECEIVER_H_
-+#define __INET_QUIC_QUICDATAGRAMRECEIVER_H_
++cmdenv-express-mode = false
++**.cmdenv-log-level = info
 +
-+#include <omnetpp.h>
-+#include "inet/transportlayer/contract/quic/QuicSocket.h"
-+#include "inet/applications/base/ApplicationBase.h"
++# QUIC concreto
++**.quic.typename = "Quic"
++# niente limiti di flow control per lo stream 0 (handshake/controllo)
++**.quic.initialMaxData = 100MB
++**.quic.initialMaxStreamData = 100MB
++# RFC 9221: supporto DATAGRAM annunciato da entrambi i lati
++**.quic.maxDatagramFrameSize = 1200B
++**.quic.numReceivedAckElicitingsBeforeAck = 1
 +
-+using namespace omnetpp;
++**.ppp[*].queue.packetCapacity = 1000
++**.ppp[*].ppp.mtu = 1280B
 +
-+namespace inet {
++# ---- SENDER: invia 20 datagrammi inaffidabili numerati ----
++**.sender.hasQuic = true
++**.sender.numApps = 1
++**.sender.app[0].typename = "QuicDatagramSender"
++**.sender.app[0].connectAddress = "receiver"
++**.sender.app[0].connectPort = 1000
++**.sender.app[0].localPort = 1001
++**.sender.app[0].numDatagrams = 20
++**.sender.app[0].datagramBytes = 800B
++**.sender.app[0].sendInterval = 5ms
 +
-+class QuicDatagramReceiver : public ApplicationBase, public QuicSocket::ICallback
-+{
-+  public:
-+    virtual ~QuicDatagramReceiver();
++# ---- RECEIVER ----
++**.receiver.hasQuic = true
++**.receiver.numApps = 1
++**.receiver.app[0].typename = "QuicDatagramReceiver"
++**.receiver.app[0].localPort = 1000
 +
-+  protected:
-+    QuicSocket listeningSocket;
-+    std::vector<QuicSocket *> clientSockets;
-+    long numReceived = 0;
-+    long lastSeq = -1;
++# ---- 20% di perdita pacchetti sul link router1->router2 (direzione sender->receiver) ----
++# Colpisce i datagrammi in andata; gli ACK (ritorno) passano su gate diversi -> non persi.
++**.router1.pppg$o[1].channel.per = 0.2
 +
-+    virtual void handleMessageWhenUp(cMessage *msg) override;
-+    virtual void handleStartOperation(LifecycleOperation *operation) override;
-+    virtual void handleStopOperation(LifecycleOperation *operation) override;
-+    virtual void handleCrashOperation(LifecycleOperation *operation) override;
-+    virtual void finish() override;
 +
-+    virtual void socketDatagramArrived(QuicSocket* socket, Packet *packet) override;
-+    virtual void socketConnectionAvailable(QuicSocket *socket) override;
-+    virtual void socketDataArrived(QuicSocket* socket, Packet *packet) override { delete packet; }
-+    virtual void socketDataAvailable(QuicSocket* socket, QuicDataInfo *dataInfo) override { }
-+    virtual void socketEstablished(QuicSocket *socket) override { }
-+    virtual void socketClosed(QuicSocket *socket) override { }
-+    virtual void socketDestroyed(QuicSocket *socket) override;
-+    virtual void socketSendQueueFull(QuicSocket *socket) override { }
-+    virtual void socketSendQueueDrain(QuicSocket *socket) override { }
-+    virtual void socketMsgRejected(QuicSocket *socket) override { }
-+};
++#############################################################################
++# Sovraccarico: l'app offre molto piu' di quanto il path riesca a portare.
++#
++# Nessuna perdita sul canale: tutto cio' che non arriva e' stato scartato dalla
++# coda di invio. Confronta le due varianti sul seq NUMERO PIU' ALTO ricevuto e
++# sull'istante in cui arriva:
++#
++#   Unbounded (coda illimitata, comportamento vecchio): i datagram escono in
++#     ordine FIFO, il ricevitore vede seq 0,1,2,... e non arriva mai in fondo:
++#     al mittente restano in coda centinaia di datagram ormai obsoleti. In un
++#     sistema con deadline (dati sensore) e' come perdere tutto.
++#
++#   DropOldest (coda limitata): quando la coda e' piena si butta il piu' vecchio,
++#     quindi sul link viaggiano sempre i datagram piu' RECENTI e il ricevitore
++#     segue il fronte della sorgente (seq vicini a numDatagrams-1).
++#############################################################################
++[Config Overload]
++sim-time-limit = 10s
++# il collo di bottiglia e' il link, non la perdita
++*.linkDatarate = 200kbps
++**.router1.pppg$o[1].channel.per = 0
++# buffer del router realistico: con i 1000 pacchetti del test base la coda del
++# collo di bottiglia assorbe ~34s di traffico, QUIC non vede mai perdita, la cwnd
++# cresce all'infinito e il buffer dominante diventa il router (bufferbloat), non
++# la datagramQueue. Con una coda corta e' la cwnd a limitare l'invio, come nel
++# caso 5G reale, e il backlog si accumula dove ci interessa: in QUIC.
++**.ppp[*].queue.packetCapacity = 20
++# sorgente CONTINUA per tutta la simulazione (come i sensori nel TOD), ~3.4 Mbps
++# offerti su 200 kbps disponibili (~17x): il backlog non fa mai in tempo a drenare.
++**.sender.app[0].numDatagrams = 5000
++**.sender.app[0].sendInterval = 2ms
 +
-+} //namespace
++[Config OverloadUnbounded]
++extends = Overload
++**.quic.maxDatagramQueueLength = 0
 +
-+#endif
---- /dev/null
-+++ b/src/inet/applications/quicapp/QuicDatagramReceiver.cc
++[Config OverloadDropOldest]
++extends = Overload
++**.quic.maxDatagramQueueLength = 8
+diff -urN inet-vanilla/src/inet/applications/quicapp/QuicDatagramReceiver.cc inet-patched/src/inet/applications/quicapp/QuicDatagramReceiver.cc
+--- a/src/inet/applications/quicapp/QuicDatagramReceiver.cc	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/applications/quicapp/QuicDatagramReceiver.cc	2026-07-20 15:24:18.169283902 +0200
 @@ -0,0 +1,92 @@
 +//
 +// SPDX-License-Identifier: LGPL-3.0-or-later
@@ -923,8 +227,62 @@
 +}
 +
 +} //namespace
---- /dev/null
-+++ b/src/inet/applications/quicapp/QuicDatagramReceiver.ned
+diff -urN inet-vanilla/src/inet/applications/quicapp/QuicDatagramReceiver.h inet-patched/src/inet/applications/quicapp/QuicDatagramReceiver.h
+--- a/src/inet/applications/quicapp/QuicDatagramReceiver.h	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/applications/quicapp/QuicDatagramReceiver.h	2026-07-20 15:24:18.169221202 +0200
+@@ -0,0 +1,49 @@
++//
++// SPDX-License-Identifier: LGPL-3.0-or-later
++//
++// Test app (RFC 9221): riceve datagrammi QUIC inaffidabili e logga il numero di sequenza.
++//
++
++#ifndef __INET_QUIC_QUICDATAGRAMRECEIVER_H_
++#define __INET_QUIC_QUICDATAGRAMRECEIVER_H_
++
++#include <omnetpp.h>
++#include "inet/transportlayer/contract/quic/QuicSocket.h"
++#include "inet/applications/base/ApplicationBase.h"
++
++using namespace omnetpp;
++
++namespace inet {
++
++class QuicDatagramReceiver : public ApplicationBase, public QuicSocket::ICallback
++{
++  public:
++    virtual ~QuicDatagramReceiver();
++
++  protected:
++    QuicSocket listeningSocket;
++    std::vector<QuicSocket *> clientSockets;
++    long numReceived = 0;
++    long lastSeq = -1;
++
++    virtual void handleMessageWhenUp(cMessage *msg) override;
++    virtual void handleStartOperation(LifecycleOperation *operation) override;
++    virtual void handleStopOperation(LifecycleOperation *operation) override;
++    virtual void handleCrashOperation(LifecycleOperation *operation) override;
++    virtual void finish() override;
++
++    virtual void socketDatagramArrived(QuicSocket* socket, Packet *packet) override;
++    virtual void socketConnectionAvailable(QuicSocket *socket) override;
++    virtual void socketDataArrived(QuicSocket* socket, Packet *packet) override { delete packet; }
++    virtual void socketDataAvailable(QuicSocket* socket, QuicDataInfo *dataInfo) override { }
++    virtual void socketEstablished(QuicSocket *socket) override { }
++    virtual void socketClosed(QuicSocket *socket) override { }
++    virtual void socketDestroyed(QuicSocket *socket) override;
++    virtual void socketSendQueueFull(QuicSocket *socket) override { }
++    virtual void socketSendQueueDrain(QuicSocket *socket) override { }
++    virtual void socketMsgRejected(QuicSocket *socket) override { }
++};
++
++} //namespace
++
++#endif
+diff -urN inet-vanilla/src/inet/applications/quicapp/QuicDatagramReceiver.ned inet-patched/src/inet/applications/quicapp/QuicDatagramReceiver.ned
+--- a/src/inet/applications/quicapp/QuicDatagramReceiver.ned	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/applications/quicapp/QuicDatagramReceiver.ned	2026-07-20 15:24:18.169350531 +0200
 @@ -0,0 +1,20 @@
 +//
 +// SPDX-License-Identifier: LGPL-3.0-or-later
@@ -946,93 +304,891 @@
 +        input socketIn;
 +        output socketOut;
 +}
---- /dev/null
-+++ b/examples/quic/datagram_test/DatagramTest.ned
-@@ -0,0 +1,45 @@
+diff -urN inet-vanilla/src/inet/applications/quicapp/QuicDatagramSender.cc inet-patched/src/inet/applications/quicapp/QuicDatagramSender.cc
+--- a/src/inet/applications/quicapp/QuicDatagramSender.cc	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/applications/quicapp/QuicDatagramSender.cc	2026-07-20 15:24:18.169048174 +0200
+@@ -0,0 +1,86 @@
 +//
 +// SPDX-License-Identifier: LGPL-3.0-or-later
 +//
-+// Rete di test per i DATAGRAM QUIC (RFC 9221): sender -> router1 -=lossy=- router2 -> receiver.
-+// La perdita e' applicata sul link router1<->router2 (PeriodicLossChannel, parametro per).
++
++#include "QuicDatagramSender.h"
++#include "inet/networklayer/common/L3AddressResolver.h"
++#include "inet/applications/base/ApplicationPacket_m.h"
++
++namespace inet {
++
++Define_Module(QuicDatagramSender);
++
++QuicDatagramSender::~QuicDatagramSender()
++{
++    cancelAndDelete(sendTimer);
++}
++
++void QuicDatagramSender::handleStartOperation(LifecycleOperation *operation)
++{
++    numDatagrams = par("numDatagrams");
++    datagramBytes = par("datagramBytes");
++    sendInterval = par("sendInterval");
++
++    L3Address localAddress = L3AddressResolver().resolve(par("localAddress"));
++    int localPort = par("localPort");
++    L3Address connectAddress = L3AddressResolver().resolve(par("connectAddress"));
++    int connectPort = par("connectPort");
++
++    socket.setOutputGate(gate("socketOut"));
++    socket.bind(localAddress, localPort);
++    socket.connect(connectAddress, connectPort);
++    socket.setCallback(this);
++
++    sendTimer = new cMessage("sendTimer");
++    EV_INFO << "QuicDatagramSender: connecting to " << connectAddress << ":" << connectPort << endl;
++}
++
++void QuicDatagramSender::handleStopOperation(LifecycleOperation *operation)
++{
++    socket.close();
++}
++
++void QuicDatagramSender::handleCrashOperation(LifecycleOperation *operation) { }
++
++void QuicDatagramSender::handleMessageWhenUp(cMessage *msg)
++{
++    if (msg->isSelfMessage()) {
++        if (msg == sendTimer)
++            sendOneDatagram();
++    }
++    else
++        socket.processMessage(msg);
++}
++
++void QuicDatagramSender::socketEstablished(QuicSocket *s)
++{
++    EV_INFO << "QuicDatagramSender: connection established, sending " << numDatagrams
++            << " datagrams every " << sendInterval << endl;
++    seq = 0;
++    scheduleAfter(SimTime::ZERO, sendTimer);   // primo invio subito dopo l'handshake
++}
++
++void QuicDatagramSender::sendOneDatagram()
++{
++    Packet *packet = new Packet("datagram");
++    auto payload = makeShared<ApplicationPacket>();
++    payload->setChunkLength(B(datagramBytes));
++    payload->setSequenceNumber(seq);
++    packet->insertAtBack(payload);
++
++    EV_INFO << "QuicDatagramSender: sendDatagram seq=" << seq << " (" << datagramBytes << "B)" << endl;
++    socket.sendDatagram(packet);
++    numSent++;
++    seq++;
++
++    if (seq < numDatagrams)
++        scheduleAfter(sendInterval, sendTimer);
++}
++
++void QuicDatagramSender::finish()
++{
++    EV_INFO << "QuicDatagramSender: TOTAL datagrams sent = " << numSent << endl;
++    recordScalar("datagramsSent", numSent);
++}
++
++} //namespace
+diff -urN inet-vanilla/src/inet/applications/quicapp/QuicDatagramSender.h inet-patched/src/inet/applications/quicapp/QuicDatagramSender.h
+--- a/src/inet/applications/quicapp/QuicDatagramSender.h	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/applications/quicapp/QuicDatagramSender.h	2026-07-20 15:24:18.169004474 +0200
+@@ -0,0 +1,53 @@
++//
++// SPDX-License-Identifier: LGPL-3.0-or-later
++//
++// Test app (RFC 9221): invia N datagrammi QUIC inaffidabili numerati.
 +//
 +
-+package inet.examples.quic.datagram_test;
++#ifndef __INET_QUIC_QUICDATAGRAMSENDER_H_
++#define __INET_QUIC_QUICDATAGRAMSENDER_H_
 +
-+import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
-+import inet.node.inet.Router;
-+import inet.node.inet.StandardHost;
-+import inet.common.misc.PeriodicLossChannel;
++#include <omnetpp.h>
++#include "inet/transportlayer/contract/quic/QuicSocket.h"
++#include "inet/applications/base/ApplicationBase.h"
 +
-+network DatagramTest
++using namespace omnetpp;
++
++namespace inet {
++
++class QuicDatagramSender : public ApplicationBase, public QuicSocket::ICallback
++{
++  public:
++    virtual ~QuicDatagramSender();
++
++  protected:
++    QuicSocket socket;
++    cMessage *sendTimer = nullptr;
++    long numDatagrams = 0;
++    long datagramBytes = 0;
++    simtime_t sendInterval;
++    long seq = 0;
++    long numSent = 0;
++
++    virtual void handleMessageWhenUp(cMessage *msg) override;
++    virtual void handleStartOperation(LifecycleOperation *operation) override;
++    virtual void handleStopOperation(LifecycleOperation *operation) override;
++    virtual void handleCrashOperation(LifecycleOperation *operation) override;
++    virtual void finish() override;
++    virtual void sendOneDatagram();
++
++    virtual void socketEstablished(QuicSocket *socket) override;
++    virtual void socketDatagramArrived(QuicSocket* socket, Packet *packet) override { delete packet; }
++    virtual void socketDataArrived(QuicSocket* socket, Packet *packet) override { delete packet; }
++    virtual void socketDataAvailable(QuicSocket* socket, QuicDataInfo *dataInfo) override { }
++    virtual void socketConnectionAvailable(QuicSocket *socket) override { }
++    virtual void socketClosed(QuicSocket *socket) override { }
++    virtual void socketDestroyed(QuicSocket *socket) override { }
++    virtual void socketSendQueueFull(QuicSocket *socket) override { }
++    virtual void socketSendQueueDrain(QuicSocket *socket) override { }
++    virtual void socketMsgRejected(QuicSocket *socket) override { }
++};
++
++} //namespace
++
++#endif
+diff -urN inet-vanilla/src/inet/applications/quicapp/QuicDatagramSender.ned inet-patched/src/inet/applications/quicapp/QuicDatagramSender.ned
+--- a/src/inet/applications/quicapp/QuicDatagramSender.ned	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/applications/quicapp/QuicDatagramSender.ned	2026-07-20 15:24:18.169153703 +0200
+@@ -0,0 +1,25 @@
++//
++// SPDX-License-Identifier: LGPL-3.0-or-later
++//
++
++package inet.applications.quicapp;
++
++import inet.common.SimpleModule;
++import inet.applications.contract.IApp;
++
++// Test app (RFC 9221): invia N datagrammi QUIC inaffidabili, numerati, a intervalli fissi.
++simple QuicDatagramSender extends SimpleModule like IApp
 +{
 +    parameters:
-+        double linkDelay @unit(s) = default(5ms);
-+        double linkDatarate @unit(bps) = default(100Mbps);
-+
-+    types:
-+        channel link extends PeriodicLossChannel
-+        {
-+            datarate = parent.linkDatarate;
-+            delay = parent.linkDelay;
-+            per = default(0);
-+        }
-+        channel idealLink extends ned.DatarateChannel
-+        {
-+            datarate = 1000Mbps;
-+            delay = 1ms;
-+            per = 0;
-+        }
-+    submodules:
-+        configurator: Ipv4NetworkConfigurator { @display("p=222,32"); }
-+        sender: StandardHost { @display("p=57,137"); }
-+        router1: Router { @display("p=146,137"); }
-+        router2: Router { @display("p=305,137"); }
-+        receiver: StandardHost { @display("p=390,137"); }
-+
-+    connections:
-+        sender.pppg++ <--> idealLink <--> router1.pppg++;
-+        router1.pppg++ <--> link <--> router2.pppg++;
-+        router2.pppg++ <--> idealLink <--> receiver.pppg++;
++        @class(QuicDatagramSender);
++        string localAddress = default("");
++        int localPort = default(0);
++        string connectAddress;
++        int connectPort;
++        int numDatagrams = default(20);          // quanti datagrammi inviare
++        int datagramBytes @unit(B) = default(800B); // payload per datagramma
++        double sendInterval @unit(s) = default(5ms); // intervallo tra due datagrammi
++    gates:
++        input socketIn;
++        output socketOut;
 +}
---- /dev/null
-+++ b/examples/quic/datagram_test/omnetpp.ini
+diff -urN inet-vanilla/src/inet/transportlayer/contract/quic/QuicCommand.msg inet-patched/src/inet/transportlayer/contract/quic/QuicCommand.msg
+--- a/src/inet/transportlayer/contract/quic/QuicCommand.msg	2026-07-20 15:24:18.053913999 +0200
++++ b/src/inet/transportlayer/contract/quic/QuicCommand.msg	2026-07-20 15:24:18.168591847 +0200
+@@ -26,6 +26,7 @@
+     QUIC_C_RECEIVE = 6;
+     QUIC_C_ACCEPT = 7;
+     QUIC_C_CONNECT_AND_SEND = 8;
++    QUIC_C_SEND_DATAGRAM = 9;   // invia un datagramma inaffidabile (RFC 9221), senza stream
+ }
+ 
+ 
+@@ -48,6 +49,7 @@
+     QUIC_I_SENDQUEUE_DRAIN = 9;
+     QUIC_I_MSG_REJECTED = 10;
+     QUIC_I_NEW_TOKEN = 11;
++    QUIC_I_DATAGRAM = 12;   // datagramma inaffidabile ricevuto (RFC 9221)
+ }
+ 
+ //
+diff -urN inet-vanilla/src/inet/transportlayer/contract/quic/QuicSocket.cc inet-patched/src/inet/transportlayer/contract/quic/QuicSocket.cc
+--- a/src/inet/transportlayer/contract/quic/QuicSocket.cc	2026-07-20 15:24:18.054030468 +0200
++++ b/src/inet/transportlayer/contract/quic/QuicSocket.cc	2026-07-20 15:24:18.168687177 +0200
+@@ -104,6 +104,13 @@
+     send(msg, 0);
+ }
+ 
++void QuicSocket::sendDatagram(Packet *msg)
++{
++    // RFC 9221: nessuno stream, il comando dedicato instrada verso Connection::newDatagram.
++    msg->setKind(QUIC_C_SEND_DATAGRAM);
++    sendToQuic(msg);
++}
++
+ void QuicSocket::connectAndSend(L3Address addr, uint16_t port, const char *token, Packet *msg, uint64_t streamId)
+ {
+     if (streamId >= ( ((uint64_t)1) << 62)) {
+@@ -235,6 +242,15 @@
+             } else {
+                 delete msg;
+             }
++            break;
++        }
++        case QUIC_I_DATAGRAM: {   // RFC 9221
++            if (cb) {
++                Packet *packet = check_and_cast<Packet*>(msg);
++                cb->socketDatagramArrived(this, packet);
++            } else {
++                delete msg;
++            }
+             break;
+         }
+         case QUIC_I_CLOSED: {
+diff -urN inet-vanilla/src/inet/transportlayer/contract/quic/QuicSocket.h inet-patched/src/inet/transportlayer/contract/quic/QuicSocket.h
+--- a/src/inet/transportlayer/contract/quic/QuicSocket.h	2026-07-20 15:24:18.054152527 +0200
++++ b/src/inet/transportlayer/contract/quic/QuicSocket.h	2026-07-20 15:24:18.168877535 +0200
+@@ -61,6 +61,15 @@
+         virtual void socketDataArrived(QuicSocket* socket, Packet *packet) = 0;
+ 
+         /**
++         * RFC 9221: un datagramma inaffidabile e' arrivato all'app.
++         * Non-pure (default vuoto) per non rompere i callback esistenti.
++         *
++         * @param socket The involved socket object.
++         * @param packet The packet with the arrived datagram.
++         */
++        virtual void socketDatagramArrived(QuicSocket* socket, Packet *packet) { delete packet; }
++
++        /**
+          * Notifies that a new connection is available to accept. Called after
+          * a listen call and an incoming connection initiation.
+          *
+@@ -218,6 +227,14 @@
+     void send(Packet *msg) override;
+ 
+     /**
++     * RFC 9221: invia un datagramma inaffidabile (nessuno stream, nessun ordinamento,
++     * nessuna ritrasmissione). Se non entra in un pacchetto QUIC viene scartato.
++     *
++     * @param msg The datagram to send.
++     */
++    void sendDatagram(Packet *msg);
++
++    /**
+      * Requests to receive data with the specified length from the specified
+      * stream from QUIC.
+      *
+diff -urN inet-vanilla/src/inet/transportlayer/quic/AppSocket.cc inet-patched/src/inet/transportlayer/quic/AppSocket.cc
+--- a/src/inet/transportlayer/quic/AppSocket.cc	2026-07-20 15:24:18.050503021 +0200
++++ b/src/inet/transportlayer/quic/AppSocket.cc	2026-07-20 15:24:18.166247066 +0200
+@@ -74,6 +74,15 @@
+     sendPacket(pkt);
+ }
+ 
++void AppSocket::sendDatagram(Ptr<const Chunk> data)
++{
++    // RFC 9221: consegna immediata all'app (indicazione dedicata QUIC_I_DATAGRAM).
++    Packet *pkt = new Packet("datagram");
++    pkt->setKind(QUIC_I_DATAGRAM);
++    pkt->insertAtBack(data);
++    sendPacket(pkt);
++}
++
+ void AppSocket::sendDataNotification(uint64_t streamId, uint64_t dataSize)
+ {
+     EV_INFO << "Notifying app: quic has data ready to read" << endl;
+diff -urN inet-vanilla/src/inet/transportlayer/quic/AppSocket.h inet-patched/src/inet/transportlayer/quic/AppSocket.h
+--- a/src/inet/transportlayer/quic/AppSocket.h	2026-07-20 15:24:18.051381989 +0200
++++ b/src/inet/transportlayer/quic/AppSocket.h	2026-07-20 15:24:18.166784582 +0200
+@@ -28,6 +28,7 @@
+     virtual void processAppCommand(cMessage *msg);
+     virtual void sendEstablished();
+     virtual void sendData(Ptr<const Chunk> data);
++    virtual void sendDatagram(Ptr<const Chunk> data);   // RFC 9221: consegna un datagramma all'app
+     virtual void sendIndication(Indication *indication);
+     virtual void sendIndications(std::list<Indication *> indications);
+     virtual void sendPacket(Packet *pkt);
+diff -urN inet-vanilla/src/inet/transportlayer/quic/Connection.cc inet-patched/src/inet/transportlayer/quic/Connection.cc
+--- a/src/inet/transportlayer/quic/Connection.cc	2026-07-20 15:24:18.051517788 +0200
++++ b/src/inet/transportlayer/quic/Connection.cc	2026-07-20 15:26:47.936090816 +0200
+@@ -9,6 +9,7 @@
+ #include "inet/transportlayer/contract/quic/QuicCommand_m.h"
+ #include "packet/PacketHeader_m.h"
+ #include "packet/FrameHeader_m.h"
++#include "packet/QuicDatagramFrame.h"
+ #include "inet/common/socket/SocketTag_m.h"
+ #include "AppSocket.h"
+ #include "connectionstate/ConnectionState.h"
+@@ -38,6 +39,8 @@
+     usedMaxQuicPacketSizeStat = stats->createStatisticEntry("usedMaxQuicPacketSize");
+     packetNumberReceivedStat = stats->createStatisticEntry("packetNumberReceived");
+     packetNumberSentStat = stats->createStatisticEntry("packetNumberSent");
++    datagramQueueLengthStat = stats->createStatisticEntry("datagramQueueLength");
++    datagramDroppedStat = stats->createStatisticEntry("datagramDropped");
+ 
+     this->path = new Path(this, udpSocket->getLocalAddr(), udpSocket->getLocalPort(), remoteAddr, remotePort, useDplpmtud, stats);
+     dplpmutdInIntialBase = false;
+@@ -53,6 +56,7 @@
+ 
+     acceptDataFromApp = true;
+     sendQueueLimit = quicSimpleMod->par("sendQueueLimit");
++    maxDatagramQueueLength = quicSimpleMod->par("maxDatagramQueueLength");
+     sendQueueLowWaterRatio = quicSimpleMod->par("sendQueueLowWaterRatio");
+     maxDataFrameThreshold = quicSimpleMod->par("maxDataFrameThreshold");
+     maxStreamDataFrameThreshold = quicSimpleMod->par("maxStreamDataFrameThreshold");
+@@ -77,6 +81,7 @@
+     packetBuilder = new PacketBuilder(&controlQueue, scheduler, receivedPacketsAccountants);
+     packetBuilder->setSrcConnectionId(srcConnectionIds[0]);
+     packetBuilder->readParameters(quicSimpleMod);
++    packetBuilder->setDatagramQueue(&datagramQueue);
+ 
+     congestionController = CongestionControlFactory::getInstance()->createCongestionController(quicSimpleMod->par("congestionControl"));
+     congestionController->readParameters(quicSimpleMod);
+@@ -164,6 +169,63 @@
+     }
+ }
+ 
++void Connection::newDatagram(Ptr<const Chunk> data)
++{
++    // RFC 9221: costruisce un DATAGRAM frame con il payload applicativo e lo accoda.
++    // Non passa da uno Stream: nessun offset, nessun ordinamento, nessuna ritrasmissione.
++
++    // RFC 9221: se il peer non ha annunciato max_datagram_frame_size (=0) non si inviano datagram.
++    uint64_t peerMax = remoteTransportParameters->maxDatagramFrameSize;
++    if (peerMax == 0) {
++        EV_WARN << "Connection::newDatagram: peer does not support DATAGRAM frames "
++                   "(max_datagram_frame_size=0), dropping" << endl;
++        return;
++    }
++
++    auto header = makeShared<DatagramFrameHeader>();
++    header->setLength(B(data->getChunkLength()).get());
++    header->calcChunkLength();
++
++    auto frame = new QuicDatagramFrame(header, data);
++
++    // RFC 9221: non inviare un DATAGRAM frame piu' grande del max_datagram_frame_size del peer.
++    if ((uint64_t) frame->getSize() > peerMax) {
++        EV_WARN << "Connection::newDatagram: frame size " << frame->getSize()
++                << " > peer max_datagram_frame_size " << peerMax << ", dropping" << endl;
++        delete frame;
++        return;
++    }
++
++    // RFC 9221 sec. 5: i DATAGRAM non sono ritrasmessi e trasportano dati con una scadenza
++    // (nel TOD: i frammenti di un frame sensore, inutili una volta chiuso quel frame). Se
++    // l'app offre piu' di quanto il path riesca a portare, una coda illimitata cresce
++    // all'infinito e finisce per spedire SOLO roba vecchia: il ricevitore la scarta come
++    // fuori deadline e il loss ratio satura a 1 anche quando la rete si e' ripresa.
++    // Quindi la coda ha un tetto e, quando e' piena, si scarta il piu' VECCHIO: sul link
++    // viaggiano sempre i datagram piu' freschi. maxDatagramQueueLength = 0 -> illimitata.
++    if (maxDatagramQueueLength > 0) {
++        while ((int) datagramQueue.size() >= maxDatagramQueueLength) {
++            auto oldest = datagramQueue.front();
++            EV_WARN << "Connection::newDatagram: datagram queue full (" << maxDatagramQueueLength
++                    << "), dropping the oldest datagram" << endl;
++            delete oldest;
++            datagramQueue.erase(datagramQueue.begin());
++            stats->getMod()->emit(datagramDroppedStat, (long) 1);
++        }
++    }
++
++    datagramQueue.push_back(frame);
++    sendPackets();
++    // dopo il tentativo di invio: quello che resta in coda e' il backlog vero
++    stats->getMod()->emit(datagramQueueLengthStat, (long) datagramQueue.size());
++}
++
++void Connection::processReceivedDatagram(Ptr<const Chunk> data)
++{
++    // RFC 9221: consegna immediata all'app, senza reassembly ne' ordinamento.
++    appSocket->sendDatagram(data);
++}
++
+ Stream *Connection::findOrCreateStream(uint64_t streamId)
+ {
+     auto it = streamMap.find(streamId);
+diff -urN inet-vanilla/src/inet/transportlayer/quic/Connection.h inet-patched/src/inet/transportlayer/quic/Connection.h
+--- a/src/inet/transportlayer/quic/Connection.h	2026-07-20 15:24:18.051653537 +0200
++++ b/src/inet/transportlayer/quic/Connection.h	2026-07-20 15:26:17.120104005 +0200
+@@ -74,6 +74,11 @@
+      */
+     void newStreamData(uint64_t streamId, Ptr<const Chunk> data);
+ 
++    // RFC 9221: accoda un datagramma applicativo inaffidabile per l'invio (no stream/offset).
++    void newDatagram(Ptr<const Chunk> data);
++    // RFC 9221: consegna all'app un datagramma ricevuto.
++    void processReceivedDatagram(Ptr<const Chunk> data);
++
+     void processReceivedData(uint64_t streamId, uint64_t offset, Ptr<const Chunk> data);
+     void accountReceivedPacket(uint64_t packetNumber, bool ackEliciting, PacketNumberSpace space, bool isIBitSet);
+     void onMaxDataFrameReceived(uint64_t maxData);
+@@ -158,6 +163,10 @@
+         return &controlQueue;
+     }
+ 
++    std::vector<QuicFrame *> *getDatagramQueue() {
++        return &datagramQueue;
++    }
++
+     Quic *getModule() {
+         return quicSimpleMod;
+     }
+@@ -209,6 +218,7 @@
+     ConnectionState *connectionState;
+ 
+     std::vector<QuicFrame *> controlQueue;
++    std::vector<QuicFrame *> datagramQueue;   // RFC 9221: datagrammi in attesa di invio (inaffidabili, non ritrasmessi)
+     PacketBuilder *packetBuilder;
+     IScheduler *scheduler;
+     std::map<uint64_t, Stream *> streamMap;
+@@ -226,6 +236,7 @@
+ 
+     bool acceptDataFromApp;
+     int sendQueueLimit;
++    int maxDatagramQueueLength;   // RFC 9221: cap della datagramQueue (0 = illimitata)
+     double sendQueueLowWaterRatio;
+     double maxDataFrameThreshold;
+     double maxStreamDataFrameThreshold;
+@@ -247,6 +258,8 @@
+     simsignal_t usedMaxQuicPacketSizeStat;
+     simsignal_t packetNumberReceivedStat;
+     simsignal_t packetNumberSentStat;
++    simsignal_t datagramQueueLengthStat;   // RFC 9221: lunghezza della datagramQueue
++    simsignal_t datagramDroppedStat;       // RFC 9221: datagram scartati per coda piena
+     Timer *closeTimer = nullptr;
+ 
+     bool initialConnectionIdSet = false;
+diff -urN inet-vanilla/src/inet/transportlayer/quic/PacketBuilder.cc inet-patched/src/inet/transportlayer/quic/PacketBuilder.cc
+--- a/src/inet/transportlayer/quic/PacketBuilder.cc	2026-07-20 15:24:18.051978215 +0200
++++ b/src/inet/transportlayer/quic/PacketBuilder.cc	2026-07-20 15:25:18.336129175 +0200
+@@ -168,6 +168,7 @@
+         transportParametersExt->setInitialMaxStreamDataBidiLocal(tp->initialMaxStreamData);
+         transportParametersExt->setInitialMaxStreamDataBidiRemote(tp->initialMaxStreamData);
+         transportParametersExt->setInitialMaxStreamDataUni(tp->initialMaxStreamData);
++        transportParametersExt->setMaxDatagramFrameSize(tp->maxDatagramFrameSize);   // RFC 9221
+         transportParametersExt->calcChunkLength();
+         frame->setData(transportParametersExt);
+     }
+@@ -221,6 +222,38 @@
+     return packet;
+ }
+ 
++QuicPacket *PacketBuilder::addFramesFromDatagramQueue(QuicPacket *packet, int maxPacketSize)
++{
++    if (datagramQueue == nullptr)
++        return packet;
++
++    // capacita' di un pacchetto vuoto (senza header dei frame gia' presenti)
++    int emptyCapacity = maxPacketSize - (int) getPacketSize(nullptr);
++
++    while (!datagramQueue->empty()) {
++        auto datagramFrame = datagramQueue->front();
++        int datagramFrameSize = (int) datagramFrame->getSize();   // header + payload
++
++        // RFC 9221: un DATAGRAM frame non e' frammentabile. Se non entra nemmeno in un
++        // pacchetto vuoto va SCARTATO (l'app deve dimensionarlo <= max_datagram_frame_size).
++        if (datagramFrameSize > emptyCapacity) {
++            EV_WARN << "PacketBuilder: datagram too large (" << datagramFrameSize
++                    << " > " << emptyCapacity << "), dropped" << endl;
++            delete datagramFrame;
++            datagramQueue->erase(datagramQueue->begin());
++            continue;
++        }
++        // Non entra nel pacchetto corrente (gia' parzialmente pieno): lo mandiamo nel prossimo.
++        if ((maxPacketSize - (int) getPacketSize(packet)) < datagramFrameSize) {
++            return packet;
++        }
++        EV_DEBUG << "PacketBuilder: insert datagram frame, size=" << datagramFrameSize << endl;
++        packet = addFrameToPacket(packet, datagramFrame);
++        datagramQueue->erase(datagramQueue->begin());
++    }
++    return packet;
++}
++
+ QuicPacket *PacketBuilder::addFrameToPacket(QuicPacket *packet, QuicFrame *frame, bool skipPacketNumber)
+ {
+     if (packet == nullptr) {
+@@ -285,6 +318,12 @@
+             // packet is not ack-eliciting now, but becomes ack-eliciting when we add the STREAM frame.
+             // we have keep the ack frame small enough, such that at least one STREAM frame (with at least one byte of data) fits into the packet.
+             ackFrame = receivedPacketsAccountant[PacketNumberSpace::ApplicationData]->generateAckFrame(maxPacketSize - getPacketSize(packet) - selectedStream->getNextStreamFrameSize(1));
++        } else if (datagramQueue != nullptr && !datagramQueue->empty()) {
++            // stesso caso dello stream: il pacchetto non e' ancora ack-eliciting ma lo diventa
++            // quando in fondo aggiungiamo un DATAGRAM frame. Un datagram non e' frammentabile,
++            // quindi non serve riservargli spazio: se l'ack ne lascia troppo poco, slitta
++            // semplicemente al pacchetto successivo.
++            ackFrame = receivedPacketsAccountant[PacketNumberSpace::ApplicationData]->generateAckFrame(maxPacketSize - getPacketSize(packet));
+         }
+ 
+         if (ackFrame != nullptr) {
+@@ -313,6 +352,18 @@
+         packet = addFramesFromControlQueue(packet, maxPacketSize);
+     }
+ 
++    // RFC 9221: i DATAGRAM frame inaffidabili (es. dati-sensore) vanno per ULTIMI, nello
++    // spazio che avanza dopo control e STREAM: gli STREAM hanno priorita' stretta sui
++    // DATAGRAM. I datagram sono traffico bulk best-effort, gli STREAM portano il canale
++    // affidabile (nel TOD: status e istruzioni su stream 0). Impacchettandoli per primi,
++    // come si faceva prima, una sorgente datagram satura non lascia mai spazio a un frame
++    // STREAM (un frammento da ~1kB riempie il pacchetto) e affama a tempo indeterminato
++    // lo stream affidabile: il canale di controllo muore proprio quando la rete e'
++    // congestionata. Il rovescio della medaglia e' che ora e' uno stream saturo a poter
++    // affamare i datagram; e' la politica voluta (control plane sopra sensor plane), e chi
++    // manda datagram deve limitare la coda -> maxDatagramQueueLength.
++    packet = addFramesFromDatagramQueue(packet, maxPacketSize);
++
+     ASSERT(packet == nullptr || packet->getSize() <= maxPacketSize);
+     return packet;
+ 
+diff -urN inet-vanilla/src/inet/transportlayer/quic/PacketBuilder.h inet-patched/src/inet/transportlayer/quic/PacketBuilder.h
+--- a/src/inet/transportlayer/quic/PacketBuilder.h	2026-07-20 15:24:18.052152413 +0200
++++ b/src/inet/transportlayer/quic/PacketBuilder.h	2026-07-20 15:24:18.167293178 +0200
+@@ -31,6 +31,11 @@
+ 
+     void readParameters(cModule *module);
+ 
++    // RFC 9221: coda dei DATAGRAM frame da inviare (di proprieta' della Connection).
++    void setDatagramQueue(std::vector<QuicFrame*> *queue) {
++        this->datagramQueue = queue;
++    }
++
+     /**
+      * Builds a regular 1-RTT packet, that may contain
+      * (1) an ack frame,
+@@ -83,6 +88,7 @@
+ 
+ private:
+     std::vector<QuicFrame*> *controlQueue;
++    std::vector<QuicFrame*> *datagramQueue = nullptr;   // RFC 9221
+     IScheduler *scheduler;
+     ReceivedPacketsAccountant **receivedPacketsAccountant;
+ 
+@@ -100,6 +106,7 @@
+     Ptr<OneRttPacketHeader> createOneRttHeader();
+     Ptr<ZeroRttPacketHeader> createZeroRttHeader();
+     QuicPacket *addFramesFromControlQueue(QuicPacket *packet, int maxPacketSize);
++    QuicPacket *addFramesFromDatagramQueue(QuicPacket *packet, int maxPacketSize);
+     QuicPacket *addFrameToPacket(QuicPacket *packet, QuicFrame *frame, bool skipPacketNumber=false);
+     size_t getPacketSize(QuicPacket *packet);
+     QuicFrame *createPingFrame();
+diff -urN inet-vanilla/src/inet/transportlayer/quic/Quic.ned inet-patched/src/inet/transportlayer/quic/Quic.ned
+--- a/src/inet/transportlayer/quic/Quic.ned	2026-07-20 15:24:18.052281582 +0200
++++ b/src/inet/transportlayer/quic/Quic.ned	2026-07-20 15:26:10.424106893 +0200
+@@ -205,6 +205,8 @@
+ 		// Flow Control
+         int initialMaxData @unit(B) = default(15MB); // Connection level flow control credit. Used as own and peer's value.
+         int initialMaxStreamData @unit(B) = default(6MB); // Stream level flow control credit for any stream (unidirectional, bidirectional local and remote). Used as own and peer's value.
++        int maxDatagramFrameSize @unit(B) = default(1200B); // RFC 9221: max size of a DATAGRAM frame this endpoint accepts (advertised to the peer). 0 disables DATAGRAM support.
++        int maxDatagramQueueLength = default(64); // RFC 9221: max number of DATAGRAM frames buffered for sending. When the queue is full the OLDEST datagram is dropped, so the freshest data wins the link. 0 = unbounded (an app that offers more than the path can carry then builds an unbounded backlog and only ever sends stale datagrams).
+         double maxDataFrameThreshold @unit(B) = default(0.5*initialMaxData); // Defines when MaxDataFrame in ConnectionFlowControl will be send.
+         double maxStreamDataFrameThreshold @unit(B) = default(0.5*initialMaxStreamData); // Defines when MaxStreamDataFrame in StreamFlowControl will be send.
+         bool roundConsumedDataValue = default(false); // If true, FlowControlResponder rounds consumedData in streamRcvBuffer to the next packetSize.
+@@ -249,6 +251,10 @@
+         @statisticTemplate[totalRcvAppData](title="total received app data"; record=vector; interpolationmode=sample-hold; unit=B);
+         @signal[sendBufferUnsentAppData*];
+         @statisticTemplate[sendBufferUnsentAppData](title="send buffer unsent app data"; record=vector; interpolationmode=sample-hold; unit=B);
++        @signal[datagramQueueLength*];
++        @statisticTemplate[datagramQueueLength](title="DATAGRAM frames waiting to be sent"; record=vector,max; interpolationmode=sample-hold);
++        @signal[datagramDropped*];
++        @statisticTemplate[datagramDropped](title="DATAGRAM frames dropped because the send queue was full"; record=count,vector; interpolationmode=none);
+ 
+         // Stream
+         @signal[streamRcvAppData*];
+diff -urN inet-vanilla/src/inet/transportlayer/quic/TransportParameters.cc inet-patched/src/inet/transportlayer/quic/TransportParameters.cc
+--- a/src/inet/transportlayer/quic/TransportParameters.cc	2026-07-20 15:24:18.052419751 +0200
++++ b/src/inet/transportlayer/quic/TransportParameters.cc	2026-07-20 15:24:18.167541556 +0200
+@@ -14,12 +14,14 @@
+ {
+     initialMaxData = quicSimpleMod->par("initialMaxData");
+     initialMaxStreamData = quicSimpleMod->par("initialMaxStreamData");
++    maxDatagramFrameSize = quicSimpleMod->par("maxDatagramFrameSize");   // RFC 9221
+ }
+ 
+ void TransportParameters::readExtension(Ptr<const TransportParametersExtension> transportParametersExt)
+ {
+     initialMaxData = transportParametersExt->getInitialMaxData();
+     initialMaxStreamData = transportParametersExt->getInitialMaxStreamDataUni();
++    maxDatagramFrameSize = transportParametersExt->getMaxDatagramFrameSize();   // RFC 9221
+     if (initialMaxStreamData != transportParametersExt->getInitialMaxStreamDataBidiLocal()
+      || initialMaxStreamData != transportParametersExt->getInitialMaxStreamDataBidiRemote()) {
+         EV_WARN << "inial_max_stream_data parameters not equal in the received transport parameter. Use only initial_max_stream_data_uni for all streams." << endl;
+diff -urN inet-vanilla/src/inet/transportlayer/quic/TransportParameters.h inet-patched/src/inet/transportlayer/quic/TransportParameters.h
+--- a/src/inet/transportlayer/quic/TransportParameters.h	2026-07-20 15:24:18.052528170 +0200
++++ b/src/inet/transportlayer/quic/TransportParameters.h	2026-07-20 15:24:18.167628715 +0200
+@@ -26,6 +26,7 @@
+ 
+     uint64_t initialMaxData = 0;
+     uint64_t initialMaxStreamData = 0;
++    uint64_t maxDatagramFrameSize = 0;   // RFC 9221: max dimensione di un DATAGRAM frame accettato (0 = disabilitati)
+ };
+ 
+ } /* namespace quic */
+diff -urN inet-vanilla/src/inet/transportlayer/quic/connectionstate/ConnectionState.cc inet-patched/src/inet/transportlayer/quic/connectionstate/ConnectionState.cc
+--- a/src/inet/transportlayer/quic/connectionstate/ConnectionState.cc	2026-07-20 15:24:18.052838438 +0200
++++ b/src/inet/transportlayer/quic/connectionstate/ConnectionState.cc	2026-07-20 15:24:18.167731714 +0200
+@@ -25,6 +25,8 @@
+             return processConnectAppCommand(msg);
+         case QUIC_C_SEND: // send
+             return processSendAppCommand(msg);
++        case QUIC_C_SEND_DATAGRAM: // RFC 9221: invio datagramma inaffidabile
++            return processSendDatagramAppCommand(msg);
+         case QUIC_C_RECEIVE:
+             return processRecvAppCommand(msg);
+         case QUIC_C_CONNECT_AND_SEND: // 0-RTT connection setup
+@@ -51,6 +53,11 @@
+     throw cRuntimeError("Send app command unexpected in the current state");
+ }
+ 
++ConnectionState *ConnectionState::processSendDatagramAppCommand(cMessage *msg)
++{
++    throw cRuntimeError("Send datagram app command unexpected in the current state");
++}
++
+ ConnectionState *ConnectionState::processRecvAppCommand(cMessage *msg)
+ {
+     throw cRuntimeError("Send data to app command unexpected in the current state");
+@@ -188,6 +195,8 @@
+     switch (frameHeader->getFrameType()) {
+         case FRAME_HEADER_TYPE_STREAM:
+             return processStreamFrame(staticPtrCast<const StreamFrameHeader>(frameHeader), pkt);
++        case FRAME_HEADER_TYPE_DATAGRAM:   // RFC 9221
++            return processDatagramFrame(staticPtrCast<const DatagramFrameHeader>(frameHeader), pkt);
+         case FRAME_HEADER_TYPE_ACK:
+             return processAckFrame(staticPtrCast<const AckFrameHeader>(frameHeader), pnSpace);
+         case FRAME_HEADER_TYPE_MAX_DATA:
+@@ -221,6 +230,11 @@
+     throw cRuntimeError("Stream frame unexpected in the current state");
+ }
+ 
++void ConnectionState::processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt)
++{
++    throw cRuntimeError("Datagram frame unexpected in the current state");
++}
++
+ void ConnectionState::processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace)
+ {
+     throw cRuntimeError("Ack frame unexpected in the current state");
+diff -urN inet-vanilla/src/inet/transportlayer/quic/connectionstate/ConnectionState.h inet-patched/src/inet/transportlayer/quic/connectionstate/ConnectionState.h
+--- a/src/inet/transportlayer/quic/connectionstate/ConnectionState.h	2026-07-20 15:24:18.052980397 +0200
++++ b/src/inet/transportlayer/quic/connectionstate/ConnectionState.h	2026-07-20 15:24:18.167838603 +0200
+@@ -26,6 +26,7 @@
+     virtual ConnectionState *processAppCommand(cMessage *msg);
+     virtual ConnectionState *processConnectAppCommand(cMessage *msg);
+     virtual ConnectionState *processSendAppCommand(cMessage *msg);
++    virtual ConnectionState *processSendDatagramAppCommand(cMessage *msg);   // RFC 9221
+     virtual ConnectionState *processCloseAppCommand(cMessage *msg);
+     virtual ConnectionState *processRecvAppCommand(cMessage *msg);
+     virtual ConnectionState *processConnectAndSendAppCommand(cMessage *msg);
+@@ -40,6 +41,7 @@
+     virtual bool containsFrame(Packet *pkt, enum FrameHeaderType frameType);
+     virtual void discardFrames(Packet *pkt);
+     virtual void processStreamFrame(const Ptr<const StreamFrameHeader>& frameHeader, Packet *pkt);
++    virtual void processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt);   // RFC 9221
+     virtual void processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace);
+     virtual void processFrame(Packet *pkt, PacketNumberSpace pnSpace);
+     virtual void processMaxDataFrame(const Ptr<const MaxDataFrameHeader>& frameHeader);
+diff -urN inet-vanilla/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.cc inet-patched/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.cc
+--- a/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.cc	2026-07-20 15:24:18.053104056 +0200
++++ b/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.cc	2026-07-20 15:24:18.167939383 +0200
+@@ -27,6 +27,16 @@
+     return this;
+ }
+ 
++ConnectionState *EstablishedConnectionState::processSendDatagramAppCommand(cMessage *msg)
++{
++    // RFC 9221: invio di un datagramma inaffidabile (nessuno stream, nessun ordinamento).
++    Packet *pkt = check_and_cast<Packet *>(msg);
++    context->newDatagram(pkt->peekData());
++    //delete pkt;
++
++    return this;
++}
++
+ ConnectionState *EstablishedConnectionState::processCloseAppCommand(cMessage *msg)
+ {
+     EV_DEBUG << "processCloseAppCommand in " << name << endl;
+@@ -75,6 +85,16 @@
+     context->processReceivedData(frameHeader->getStreamId(), frameHeader->getOffset(), data);
+ }
+ 
++void EstablishedConnectionState::processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt)
++{
++    EV_DEBUG << "processDatagramFrame in " << name << endl;
++
++    // Il payload segue subito l'header; ne leggiamo ESATTAMENTE 'length' byte perche' un
++    // DATAGRAM frame puo' essere seguito da altri frame nello stesso pacchetto QUIC.
++    auto data = pkt->popAtFront(B(frameHeader->getLength()));
++    context->processReceivedDatagram(data);
++}
++
+ void EstablishedConnectionState::processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace)
+ {
+     EV_DEBUG << "processAckFrame in " << name << endl;
+diff -urN inet-vanilla/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.h inet-patched/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.h
+--- a/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.h	2026-07-20 15:24:18.053553562 +0200
++++ b/src/inet/transportlayer/quic/connectionstate/EstablishedConnectionState.h	2026-07-20 15:24:18.168235570 +0200
+@@ -21,10 +21,12 @@
+ 
+     virtual void start() override;
+     virtual ConnectionState *processSendAppCommand(cMessage *msg) override;
++    virtual ConnectionState *processSendDatagramAppCommand(cMessage *msg) override;   // RFC 9221
+     virtual ConnectionState *processCloseAppCommand(cMessage *msg) override;
+     virtual ConnectionState *processZeroRttPacket(const Ptr<const ZeroRttPacketHeader>& packetHeader, Packet *pkt) override;
+     virtual ConnectionState *processOneRttPacket(const Ptr<const OneRttPacketHeader>& packetHeader, Packet *pkt) override;
+     virtual void processStreamFrame(const Ptr<const StreamFrameHeader>& frameHeader, Packet *pkt) override;
++    virtual void processDatagramFrame(const Ptr<const DatagramFrameHeader>& frameHeader, Packet *pkt) override;   // RFC 9221
+     virtual void processAckFrame(const Ptr<const AckFrameHeader>& frameHeader, PacketNumberSpace pnSpace) override;
+     virtual void processMaxDataFrame(const Ptr<const MaxDataFrameHeader>& frameHeader) override;
+     virtual void processMaxStreamDataFrame(const Ptr<const MaxStreamDataFrameHeader>& frameHeader) override;
+diff -urN inet-vanilla/src/inet/transportlayer/quic/packet/FrameHeader.msg inet-patched/src/inet/transportlayer/quic/packet/FrameHeader.msg
+--- a/src/inet/transportlayer/quic/packet/FrameHeader.msg	2026-07-20 15:24:18.053668201 +0200
++++ b/src/inet/transportlayer/quic/packet/FrameHeader.msg	2026-07-20 15:24:18.168344079 +0200
+@@ -28,6 +28,7 @@
+     FRAME_HEADER_TYPE_CONNECTION_CLOSE_QUIC = 0x1c;
+     FRAME_HEADER_TYPE_CONNECTION_CLOSE_APP = 0x1d;
+     FRAME_HEADER_TYPE_HANDSHAKE_DONE = 0x1e;
++    FRAME_HEADER_TYPE_DATAGRAM = 0x31;   // RFC 9221 DATAGRAM frame (variante "with Length", tipo 0x31)
+ }
+ 
+ class FrameHeader extends FieldsChunk
+@@ -62,6 +63,33 @@
+     }
+ }}
+ 
++//
++// RFC 9221 DATAGRAM frame (variante 0x31, con campo Length).
++// A differenza dello STREAM frame non ha streamId ne' offset: trasporta un
++// singolo datagramma applicativo inaffidabile e non ordinato. Il payload
++// (es. SensorDataResponse) viene messo come data del QuicDatagramFrame.
++//
++class DatagramFrameHeader extends FrameHeader
++{
++    frameType = FRAME_HEADER_TYPE_DATAGRAM;
++    VariableLengthInteger length;   // lunghezza in byte del payload del datagramma
++}
++cplusplus(DatagramFrameHeader) {{
++  public:
++    static const size_t MAX_HEADER_SIZE = 1 + 8;
++    static const size_t MIN_HEADER_SIZE = 1 + 1;
++
++    void calcChunkLength() {
++        int64_t len = 1 + getVariableLengthIntegerSize(length);
++        this->setChunkLength(B(len));
++    }
++    std::string str() const override {
++        std::ostringstream os;
++        os << "DATAGRAM[length=" << length << "]";
++        return os.str();
++    }
++}}
++
+ struct AckRange
+ {
+     VariableLengthInteger gap;
+@@ -234,6 +262,7 @@
+     VariableLengthInteger initialMaxStreamDataBidiLocal;
+     VariableLengthInteger initialMaxStreamDataBidiRemote;
+     VariableLengthInteger initialMaxStreamDataUni;
++    VariableLengthInteger maxDatagramFrameSize;   // RFC 9221 (0 = datagram non supportati)
+ }
+ cplusplus(TransportParametersExtension) {{
+   public:
+@@ -241,7 +270,8 @@
+         int64_t len = getVariableLengthIntegerSize(initialMaxData) \
+                       + getVariableLengthIntegerSize(initialMaxStreamDataBidiLocal) \
+                       + getVariableLengthIntegerSize(initialMaxStreamDataBidiRemote) \
+-                      + getVariableLengthIntegerSize(initialMaxStreamDataUni);
++                      + getVariableLengthIntegerSize(initialMaxStreamDataUni) \
++                      + getVariableLengthIntegerSize(maxDatagramFrameSize);
+         this->setChunkLength(B(len));
+     }
+     std::string str() const override {
+diff -urN inet-vanilla/src/inet/transportlayer/quic/packet/QuicDatagramFrame.cc inet-patched/src/inet/transportlayer/quic/packet/QuicDatagramFrame.cc
+--- a/src/inet/transportlayer/quic/packet/QuicDatagramFrame.cc	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/transportlayer/quic/packet/QuicDatagramFrame.cc	2026-07-20 15:24:18.168442529 +0200
 @@ -0,0 +1,39 @@
-+[General]
-+network = inet.examples.quic.datagram_test.DatagramTest
-+sim-time-limit = 5s
++//
++// Copyright (C) 2019-2024 Timo Völker, Ekaterina Volodina
++// Copyright (C) 2025 OpenSim Ltd.
++//
++// SPDX-License-Identifier: LGPL-3.0-or-later
++//
 +
-+cmdenv-express-mode = false
-+**.cmdenv-log-level = info
++#include "QuicDatagramFrame.h"
 +
-+# QUIC concreto
-+**.quic.typename = "Quic"
-+# niente limiti di flow control per lo stream 0 (handshake/controllo)
-+**.quic.initialMaxData = 100MB
-+**.quic.initialMaxStreamData = 100MB
-+# RFC 9221: supporto DATAGRAM annunciato da entrambi i lati
-+**.quic.maxDatagramFrameSize = 1200B
-+**.quic.numReceivedAckElicitingsBeforeAck = 1
++namespace inet {
++namespace quic {
 +
-+**.ppp[*].queue.packetCapacity = 1000
-+**.ppp[*].ppp.mtu = 1280B
++QuicDatagramFrame::QuicDatagramFrame() { }
 +
-+# ---- SENDER: invia 20 datagrammi inaffidabili numerati ----
-+**.sender.hasQuic = true
-+**.sender.numApps = 1
-+**.sender.app[0].typename = "QuicDatagramSender"
-+**.sender.app[0].connectAddress = "receiver"
-+**.sender.app[0].connectPort = 1000
-+**.sender.app[0].localPort = 1001
-+**.sender.app[0].numDatagrams = 20
-+**.sender.app[0].datagramBytes = 800B
-+**.sender.app[0].sendInterval = 5ms
++QuicDatagramFrame::QuicDatagramFrame(Ptr<const DatagramFrameHeader> header, Ptr<const Chunk> data)
++{
++    // Chiamate esplicite (non deleghiamo al costruttore base QuicFrame(header,data))
++    // cosi' la dispatch virtuale usa QuicDatagramFrame::setHeader e valorizza datagramHeader.
++    this->setHeader(header);
++    this->setData(data);
++}
 +
-+# ---- RECEIVER ----
-+**.receiver.hasQuic = true
-+**.receiver.numApps = 1
-+**.receiver.app[0].typename = "QuicDatagramReceiver"
-+**.receiver.app[0].localPort = 1000
++QuicDatagramFrame::~QuicDatagramFrame() { }
 +
-+# ---- 20% di perdita pacchetti sul link router1->router2 (direzione sender->receiver) ----
-+# Colpisce i datagrammi in andata; gli ACK (ritorno) passano su gate diversi -> non persi.
-+**.router1.pppg$o[1].channel.per = 0.2
++void QuicDatagramFrame::setHeader(Ptr<const FrameHeader> header)
++{
++    QuicFrame::setHeader(header);
++    datagramHeader = dynamicPtrCast<const DatagramFrameHeader>(header);
++}
++
++bool QuicDatagramFrame::equals(const QuicFrame *other)
++{
++    // Un datagramma e' inaffidabile e non ritrasmesso: non ha identita' di
++    // ritrasmissione, quindi confrontiamo per identita' dell'oggetto.
++    return this == other;
++}
++
++} /* namespace quic */
++} /* namespace inet */
+diff -urN inet-vanilla/src/inet/transportlayer/quic/packet/QuicDatagramFrame.h inet-patched/src/inet/transportlayer/quic/packet/QuicDatagramFrame.h
+--- a/src/inet/transportlayer/quic/packet/QuicDatagramFrame.h	1970-01-01 01:00:00.000000000 +0100
++++ b/src/inet/transportlayer/quic/packet/QuicDatagramFrame.h	2026-07-20 15:24:18.168510808 +0200
+@@ -0,0 +1,53 @@
++//
++// Copyright (C) 2019-2024 Timo Völker, Ekaterina Volodina
++// Copyright (C) 2025 OpenSim Ltd.
++//
++// SPDX-License-Identifier: LGPL-3.0-or-later
++//
++
++#ifndef INET_APPLICATIONS_QUIC_PACKET_QUICDATAGRAMFRAME_H_
++#define INET_APPLICATIONS_QUIC_PACKET_QUICDATAGRAMFRAME_H_
++
++#include "QuicFrame.h"
++
++namespace inet {
++namespace quic {
++
++//
++// RFC 9221 DATAGRAM frame.
++//
++// Trasporta un singolo datagramma applicativo inaffidabile e non ordinato:
++// niente stream, niente offset. Il payload (es. SensorDataResponse) e' salvato
++// direttamente come data del frame (a differenza di QuicStreamFrame, che li
++// recupera lazy dallo Stream).
++//
++// E' ack-eliciting e conta in-flight (default di QuicFrame::setHeader per i tipi
++// non-ACK/CC/PADDING), quindi partecipa a RTT e congestion control. MA non viene
++// mai RITRASMESSO: NON sovrascriviamo onFrameLost(), quindi resta il no-op della
++// classe base QuicFrame::onFrameLost(). Questa e' esattamente la semantica RFC 9221.
++//
++class QuicDatagramFrame: public QuicFrame {
++public:
++    QuicDatagramFrame();
++    QuicDatagramFrame(Ptr<const DatagramFrameHeader> header, Ptr<const Chunk> data);
++    virtual ~QuicDatagramFrame();
++
++    virtual void setHeader(Ptr<const FrameHeader> header) override;
++    virtual bool hasData() override { return true; }
++    virtual bool equals(const QuicFrame *other) override;
++
++    virtual Ptr<const DatagramFrameHeader> getDatagramHeader() {
++        return datagramHeader;
++    }
++
++    // NB: nessun override di onFrameLost()/onFrameAcked(): un datagramma perso
++    // NON viene ri-accodato -> nessuna ritrasmissione (a differenza dello stream).
++
++private:
++    Ptr<const DatagramFrameHeader> datagramHeader = nullptr;
++};
++
++} /* namespace quic */
++} /* namespace inet */
++
++#endif /* INET_APPLICATIONS_QUIC_PACKET_QUICDATAGRAMFRAME_H_ */
