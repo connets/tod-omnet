@@ -10,7 +10,11 @@ simple TODAgentApp like IApp
         @class(TODAgentApp);
         string agentId = default("");
         volatile int instructionMessageLength @unit(byte) = default(30B);
-        
+        // Fixed size of a status message on stream 0. MUST match
+        // TODCarApp.statusMessageLength: it is the framing unit the server uses to
+        // read one COMPLETE status at a time (QUIC may split it across packets).
+        int statusMessageLength @unit(byte) = default(1kB);
+
         string localAddress = default("server");
         int localPort = 3000;
         

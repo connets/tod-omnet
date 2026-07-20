@@ -28,7 +28,7 @@ string TodCarlanetManager::getActorStatus(string actorId){
     tod_carla_api::actor_status_update requestMsg;
     requestMsg.actor_id = actorId;
 
-    tod_carla_api::actor_status response = sendToAndGetFromCarla_actor_generic_message<tod_carla_api::actor_status_update, tod_carla_api::actor_status>(requestMsg);
+    tod_carla_api::actor_status response = sendToAndGetFromCarla<tod_carla_api::actor_status_update, tod_carla_api::actor_status>(requestMsg);
 
     return response.status_id;
 }
@@ -37,7 +37,7 @@ void TodCarlanetManager::getActorStatusZeroDelay(string actorId){
     EV_INFO << "Contact Carla for getting the status id zero delay: "<< actorId << endl;
     tod_carla_api::actor_status_update_zero_delay requestMsg;
     requestMsg.actor_id = actorId;
-    sendToAndGetFromCarla_actor_generic_message<tod_carla_api::actor_status_update_zero_delay, tod_carla_api::ok>(requestMsg);
+    sendToAndGetFromCarla<tod_carla_api::actor_status_update_zero_delay, tod_carla_api::ok>(requestMsg);
 }
 
 
@@ -51,7 +51,7 @@ string TodCarlanetManager::computeInstruction(string actorId, string statusId, s
     requestMsg.loss_ratio = lossRatio;
 
     //json j = requestMsg;
-    tod_carla_api::instruction response = sendToAndGetFromCarla_agent_generic_message<tod_carla_api::compute_instruction,tod_carla_api::instruction>(requestMsg);
+    tod_carla_api::instruction response = sendToAndGetFromCarla<tod_carla_api::compute_instruction,tod_carla_api::instruction>(requestMsg);
 
     return response.instruction_id;
 }
@@ -62,7 +62,7 @@ void TodCarlanetManager::applyInstruction(string actorId, string instructionId){
     requestMsg.actor_id = actorId;
     requestMsg.instruction_id = instructionId;
 
-    sendToAndGetFromCarla_actor_generic_message<tod_carla_api::apply_instruction, tod_carla_api::ok>(requestMsg);
+    sendToAndGetFromCarla<tod_carla_api::apply_instruction, tod_carla_api::ok>(requestMsg);
 
 
 }
@@ -73,7 +73,7 @@ string TodCarlanetManager::getCooperativeStatusFromCarlaActor(string actorId){
     tod_carla_api::cooperative_status_request requestMsg;
     requestMsg.actor_id = actorId;
 
-    tod_carla_api::actor_status response = sendToAndGetFromCarla_actor_generic_message<tod_carla_api::cooperative_status_request, tod_carla_api::actor_status>(requestMsg);
+    tod_carla_api::actor_status response = sendToAndGetFromCarla<tod_carla_api::cooperative_status_request, tod_carla_api::actor_status>(requestMsg);
 
 
     return response.status_id;
@@ -87,7 +87,7 @@ void TodCarlanetManager::sendCooperativeStatusToCarlaActor(string actorId, strin
     requestMsg.actor_id = actorId;
     requestMsg.status_id = statusId;
 
-    sendToAndGetFromCarla_actor_generic_message<tod_carla_api::cooperative_update,tod_carla_api::ok>(requestMsg);
+    sendToAndGetFromCarla<tod_carla_api::cooperative_update,tod_carla_api::ok>(requestMsg);
 }
 
 void TodCarlanetManager::sendCooperativeStatusToCarlaAgent(string agentId, string statusId){
@@ -98,7 +98,7 @@ void TodCarlanetManager::sendCooperativeStatusToCarlaAgent(string agentId, strin
     requestMsg.actor_id = agentId;
     requestMsg.status_id = statusId;
 
-    sendToAndGetFromCarla_agent_generic_message<tod_carla_api::cooperative_update,tod_carla_api::ok>(requestMsg);
+    sendToAndGetFromCarla<tod_carla_api::cooperative_update,tod_carla_api::ok>(requestMsg);
 }
 
 void CarlanetManager::finish() {

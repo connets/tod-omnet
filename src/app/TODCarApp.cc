@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <set>
+#include <cstring>
 
 #include "inet/common/ModuleAccess.h"
 #include "inet/common/TagBase_m.h"
@@ -33,6 +34,15 @@ Define_Module(TODCarApp);
 void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details)
 {
     auto packet = check_and_cast<Packet*>(object);
+    // packetSent fires for BOTH the status packet ("StatusUpdate_...") AND every
+    // sensor datagram ("SensorDatagram"). Only the status packet carries a
+    // TodStatusUpdateMessage; peeking a sensor datagram as one throws a chunk
+    // conversion error, so filter by packet name (does not touch the chunks).
+    if (strncmp(packet->getName(), "StatusUpdate", 12) != 0)
+    {
+        return;
+    }
+
     simtime_t retrievalTime = packet->peekData<TodStatusUpdateMessage>()->getCollectionTime();
 
     auto instrucionDelay = simTime() - retrievalTime;
@@ -78,11 +88,11 @@ void TODCarApp::initialize(int stage)
         zeroDelay = par("zeroDelay").boolValue();
         EV_INFO << "setting zero delay to => " << zeroDelay << endl;
 
-        auto mobilityModule = omnetpp::check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+        auto mobilityModule = omnetpp::check_and_cast<CarlaInetMobility*>(getContainingNode(this)->getSubmodule("mobility"));
 
         sensorBuffer.clear();
         carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(
-                getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
+                getContainingNode(this)->getParentModule()->getSubmodule("carlaCommunicationManager"));
 
         updateStatusSelfMessage = new cMessage("UpdateStatus");
         statusUpdateInterval = par("statusUpdateInterval");
@@ -144,6 +154,8 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg)
         else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND)
         {
             sendUpdateStatusPacket(simTime());
+            delete msg;   // self-message gia' scattato: liberarlo, altrimenti leaka un
+                          // creationStatusTime per ogni status (centinaia di undisposed)
         }
     }
     else if (msg->arrivedOn("fromManager"))
@@ -175,7 +187,7 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
     zeroDelay = par("zeroDelay").boolValue();
     EV_INFO << "TODCarApp::sendUpdateStatusPacket setting zero delay to => " << zeroDelay << endl;
 
-    auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+    auto mobilityModule = check_and_cast<CarlaInetMobility*>(getContainingNode(this)->getSubmodule("mobility"));
     string carlaID = mobilityModule->getCarlaId();
 
     EV_INFO << "TODCarApp::sendUpdateStatusPacket zeroDelay "<< zeroDelay << endl;
@@ -213,7 +225,16 @@ void TODCarApp::socketEstablished(QuicSocket *socket)
 
 void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo)
 {
-    socket->recv(dataInfo->getAvaliableDataSize(), dataInfo->getStreamID());
+    // Le istruzioni arrivano su stream 0 come messaggi discreti di dimensione fissa
+    // (TODAgentApp fa setChunkLength(B(instructionMessageLength))). Come il server con
+    // lo status, leggiamo un messaggio COMPLETO per volta: leggere tutti i byte
+    // disponibili puo' consegnare piu' istruzioni concatenate (SequenceChunk) e i
+    // result filter instructionRTTNetwork/instructionDelay, che fanno
+    // peekData<TodInstructionMessage>(), lancerebbero
+    // "Cannot convert chunk inet::SequenceChunk to inet::TodInstructionMessage".
+    const int64_t msgLen = par("instructionMessageLength").intValue();
+    if ((int64_t) dataInfo->getAvaliableDataSize() >= msgLen)
+        socket->recv(msgLen, dataInfo->getStreamID());
 }
 
 void TODCarApp::socketClosed(QuicSocket *socket) {}
@@ -309,7 +330,7 @@ void TODCarApp::processPacket(Packet *pk)
  */
 void TODCarApp::applyZeroDelay()
 {
-    auto mobilityModule = check_and_cast<CarlaInetMobility*>(getParentModule()->getSubmodule("mobility"));
+    auto mobilityModule = check_and_cast<CarlaInetMobility*>(getContainingNode(this)->getSubmodule("mobility"));
     std::string carlaID = mobilityModule->getCarlaId();
     carlaCommunicationManager->getActorStatusZeroDelay(carlaID);
     for (auto pk : sensorBuffer)
@@ -348,6 +369,12 @@ void TODCarApp::createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, st
     {
         data->setExpectedStreams(idx++, stream);
     }
+
+    // Give the status message a fixed, byte-aligned length (it represents the
+    // encoded frame). Without this the auto-computed bit length isn't a multiple
+    // of 8, and QUIC's B(getChunkLength()) on stream send throws
+    // "Cannot convert between integer units".
+    data->setChunkLength(B(statusMessageLength));
 
     auto creationTimeTag = data->addTag<CreationTimeTag>();
     creationTimeTag->setCreationTime(simTime());

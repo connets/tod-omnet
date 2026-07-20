@@ -9,7 +9,7 @@ simple CameraSensorApp like SensorBaseApp {
         int streamID = default(4);
         string sensorType = default("Camera");
         volatile double dataSize @unit(B) = default(uniform(16000B, 24000B)); // ~20 KB ±20%
-        double updateInterval @unit(s) = default(0s);                      // ogni frame
+        double updateInterval @unit(s) = default(0s);
         @display("i=block/source");
     gates:
         input fromManager;

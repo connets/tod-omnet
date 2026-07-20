@@ -13,6 +13,10 @@ simple TODCarApp like IApp
         string destAddress = default("server");
         int destPort = default(3000);
         volatile int statusMessageLength @unit(byte) = default(8kB);
+        // Fixed size of an instruction on stream 0 (server->car). MUST match
+        // TODAgentApp.instructionMessageLength: framing unit to read one COMPLETE
+        // instruction at a time (QUIC may deliver several back-to-back).
+        int instructionMessageLength @unit(byte) = default(1kB);
         int datagramChunkSize @unit(B) = default(1000B);  // It has to be less then max_datagram_size
         volatile double statusUpdateInterval @unit(s)  = default(0.016s);
 
