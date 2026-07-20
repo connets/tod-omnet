@@ -34,10 +34,13 @@ Define_Module(TODCarApp);
 void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details)
 {
     auto packet = check_and_cast<Packet*>(object);
-    // packetSent fires for BOTH the status packet ("StatusUpdate_...") AND every
-    // sensor datagram ("SensorDatagram"). Only the status packet carries a
-    // TodStatusUpdateMessage; peeking a sensor datagram as one throws a chunk
-    // conversion error, so filter by packet name (does not touch the chunks).
+
+    /*
+     * Done to avoid chunk conversion error since both status update message
+     * and sensor datagram are fired during the simulation: only TodStatusUpdateMessage
+     * carries a Status Update Message causing peekData to throw an error when
+     * called on a sensor datagram
+     */
     if (strncmp(packet->getName(), "StatusUpdate", 12) != 0)
     {
         return;
@@ -110,7 +113,7 @@ void TODCarApp::finish()
 /*
  * The periodic status/sensor frame is started in socketEstablished(),
  * once the QUIC connection is ready
- * */
+ */
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)
 {
     L3AddressResolver().tryResolve(par("destAddress"), destAddress);
@@ -147,6 +150,11 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg)
     {
         if (msg == updateStatusSelfMessage)
         {
+            /*
+             * This branch executes when it's time to fetch all the data to build the status
+             * update message. It collects sensor data via sending a message to the manager
+             * and schedules a new self message to do again the status update
+             */
             retrieveStatusData();
             send(new cMessage("collectSensors"), "toManager");
             scheduleAfter(statusUpdateInterval, msg);
@@ -154,12 +162,20 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg)
         else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND)
         {
             sendUpdateStatusPacket(simTime());
-            delete msg;   // self-message gia' scattato: liberarlo, altrimenti leaka un
-                          // creationStatusTime per ogni status (centinaia di undisposed)
+
+            /*
+             * Avoid message leaks during simulation as in this branch it will not used again
+             */
+            delete msg;
         }
     }
     else if (msg->arrivedOn("fromManager"))
     {
+        /*
+         * This branch captures all the message coming from the sensor manager.
+         * Calling bufferizeSensorData, the sensors messages are stored inside a vector
+         * ready to be used
+         */
         bufferizeSensorData(msg);
     }
     else if(socket.belongsToSocket(msg))
@@ -181,7 +197,10 @@ void TODCarApp::retrieveStatusData()
 }
 
 
-
+/*
+ * This method send the status update packet via stream 0 to the agent and all
+ * the frame datagrams to the agent using QUIC Datagram protocol
+ */
 void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
 {
     zeroDelay = par("zeroDelay").boolValue();
@@ -223,25 +242,31 @@ void TODCarApp::socketEstablished(QuicSocket *socket)
     scheduleAt(simTime() + statusUpdateInterval, updateStatusSelfMessage);
 }
 
+/*
+ * The instructions arrive on stream 0 as messages with a fix dimension:
+ * if we read all the available bytes we could potentially read more then one instruction
+ * at time. This creates an object called SequenceChunk that it's not a TodInstructionMessage
+ * causing receive signal to throw a conversion error on its peekData
+ */
 void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo)
 {
-    // Le istruzioni arrivano su stream 0 come messaggi discreti di dimensione fissa
-    // (TODAgentApp fa setChunkLength(B(instructionMessageLength))). Come il server con
-    // lo status, leggiamo un messaggio COMPLETO per volta: leggere tutti i byte
-    // disponibili puo' consegnare piu' istruzioni concatenate (SequenceChunk) e i
-    // result filter instructionRTTNetwork/instructionDelay, che fanno
-    // peekData<TodInstructionMessage>(), lancerebbero
-    // "Cannot convert chunk inet::SequenceChunk to inet::TodInstructionMessage".
-    const int64_t msgLen = par("instructionMessageLength").intValue();
+    const int64_t msgLen = par("instructionMessageLength").intValue(); // Fixed message dimension
     if ((int64_t) dataInfo->getAvaliableDataSize() >= msgLen)
+    {
         socket->recv(msgLen, dataInfo->getStreamID());
+    }
 }
 
 void TODCarApp::socketClosed(QuicSocket *socket) {}
 
+/*
+ * This method send to the Agent all the sensor packet using the QUIC
+ * Datagram protocol
+ */
 void TODCarApp::sendSensorPacket(Packet *packet, uint64_t frameId)
 {
-    auto source = packet->peekAtFront<SensorDataResponse>();
+    auto source = packet->peekAtFront<SensorDataResponse>(); // Contains all the info of the sensor
+
     uint64_t streamId = source->getStreamId();
     string sensorType = source->getSensorType();
     simtime_t collectionTime = source->getCollectionTime();
