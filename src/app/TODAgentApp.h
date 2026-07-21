@@ -59,8 +59,15 @@ private:
     map<uint64_t, FrameAcc> frameStats;                // Stats for each frame
     uint64_t lastClosedFrame = 0;                      // Closing frame id to ignore all other packets
 
-    void countSensorData(Packet *packet);
-    double computeLossRatio(uint64_t frameId);
+    struct InfoFromTSM
+    {
+        auto actorId;
+        auto statusId;
+        auto statusCreationTime;
+        auto statusCollectionTime;
+    };
+
+    InfoFromTSM currentInfos;
 
 protected:
     QuicSocket socket;                                 // listening socket
@@ -70,6 +77,20 @@ protected:
     // statistics
     int numSent = 0;
     int numReceived = 0;
+
+private:
+    void infoFromTodStatusMessage(ProcessedStatusMessage *todStatusMessage) {
+        currentInfos = {};
+        currentInfos.actorId = todStatusMessage->getActorId();
+        currentInfos.statusId = todStatusMessage->getStatusId();
+        currentInfos.statusCreationTime = todStatusMessage->getStatusCreationTime();
+        currentInfos.statusCollectionTime = todStatusMessage->getCollectionTime();
+    }
+
+    void countSensorData(Packet *packet);
+    double computeLossRatio(uint64_t frameId);
+    void createAndSendInstructionMessage(ProcessedStatusMessage *todStatusMessage, auto instructionId, double lossRatio);
+    void scheduleStatusMessage(auto todStatusMessage, Packet *statusPacket, uint64_t frameId);
 
 
 protected:

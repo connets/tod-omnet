@@ -1,21 +1,27 @@
 #include "SensorManager.h"
 #include "messages/SensorMessages_m.h"
-#include "inet/transportlayer/contract/quic/QuicCommand_m.h" // QuicStreamReq
+#include "inet/transportlayer/contract/quic/QuicCommand_m.h"
 
 Define_Module(SensorManager);
 
 SensorManager::~SensorManager() {}
 
-void SensorManager::initialize() {
+void SensorManager::initialize()
+{
     registerSensors();
 }
 
-void SensorManager::registerSensors() {
+void SensorManager::registerSensors()
+{
     int sensorsNumber = gateSize("toSensors");
     sensors.resize(sensorsNumber);
 
-    for (int i = 0; i < sensorsNumber; i++) {
-        cModule *sensor = gate("toSensors", i)->getPathEndGate()->getOwnerModule(); // Gets the sensor module from the gate
+    for (int i = 0; i < sensorsNumber; i++)
+    {
+        /*
+         * Gets the sensor module from the gate
+         */
+        cModule *sensor = gate("toSensors", i)->getPathEndGate()->getOwnerModule();
 
         sensors[i].streamId = sensor->par("streamID");
         sensors[i].type = sensor->par("sensorType").stdstringValue();
@@ -24,40 +30,76 @@ void SensorManager::registerSensors() {
     }
 }
 
-void SensorManager::handleMessage(cMessage *msg) {
-    if (msg->arrivedOn("fromApp")) { retrieveData(); delete msg; }
-    else if (msg->arrivedOn("fromSensors")) sendDataToApp(msg);
-    else delete msg;
+void SensorManager::handleMessage(cMessage *msg)
+{
+    if (msg->arrivedOn("fromApp"))
+    {
+        /*
+         * The message arrived from the Car: its time to get the data
+         * from the sensors
+         */
+        retrieveData();
+        delete msg;
+    }
+    else if (msg->arrivedOn("fromSensors"))
+    {
+        /*
+         * Message arrives from the sensors and sends it
+         * to the car app
+         */
+        sendDataToApp(msg);
+    }
+    else
+    {
+        delete msg;
+    }
 }
 
-void SensorManager::retrieveData() {
+/*
+ * This method contacts the sensors to ask them all the data
+ * that it's ready
+ */
+void SensorManager::retrieveData()
+{
     frameId++;
 
     int sensorsNumber = gateSize("toSensors");
 
-    for (int i = 0; i < sensorsNumber; i++) {
-        auto pkt = new Packet("SensorReq");
-        auto req = makeShared<SensorDataRequest>();
+    for (int i = 0; i < sensorsNumber; i++)
+    {
+        auto packet = new Packet("SensorReq");
+        auto request = makeShared<SensorDataRequest>();
 
-        req->setFrameId(frameId);
-        req->setRequestTime(simTime());
-        req->setChunkLength(B(8));
-        pkt->insertAtBack(req);
-        send(pkt, "toSensors", i);
+        request->setFrameId(frameId);
+        request->setRequestTime(simTime());
+        request->setChunkLength(B(8));
+        packet->insertAtBack(req);
+        send(packet, "toSensors", i);
     }
 }
 
-void SensorManager::sendDataToApp(cMessage* msg) {
-    Packet *pkt = dynamic_cast<Packet*>(msg);
-    if (pkt == nullptr) {
+/*
+ * It ads a fake stream id to know from which sensor arrives the
+ * data
+ */
+void SensorManager::sendDataToApp(cMessage* msg)
+{
+    Packet *packet = dynamic_cast<Packet*>(msg);
+
+    /*
+     * If the packet is null then it can be deleted and
+     * no operation is done: it's not sent to the car
+     */
+    if (packet == nullptr)
+    {
         delete msg;
         return;
     }
 
-    int idx = pkt->getArrivalGate()->getIndex();
+    int idx = packet->getArrivalGate()->getIndex();
     int streamId = sensors[idx].streamId;
-    pkt->addTagIfAbsent<QuicStreamReq>()->setStreamID(streamId);
+    packet->addTagIfAbsent<QuicStreamReq>()->setStreamID(streamId);
 
     EV_INFO << "Inoltro dati sensore[" << idx << "] su stream " << streamId << endl;
-    send(pkt, "toApp");
+    send(packet, "toApp");
 }

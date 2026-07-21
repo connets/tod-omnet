@@ -13,47 +13,67 @@ Define_Module(SensorBaseApp);
 
 SensorBaseApp::~SensorBaseApp() {}
 
-void SensorBaseApp::initialize() {
+void SensorBaseApp::initialize()
+{
     streamID = par("streamID");
     sensorType = par("sensorType").stdstringValue();
     updateInterval = par("updateInterval");
 }
 
-void SensorBaseApp::handleMessage(cMessage *msg) {
-    if (msg->arrivedOn("fromManager")) infoFromPacket(msg);
-    else delete msg;
+void SensorBaseApp::handleMessage(cMessage *msg)
+{
+    if (msg->arrivedOn("fromManager"))
+    {
+        infoFromPacket(msg); // Gets all the info arrived from the manager
+    }
+    else
+    {
+        delete msg;
+    }
 }
 
-void SensorBaseApp::infoFromPacket(cMessage* msg) {
-    Packet *pkt = check_and_cast<Packet*>(msg);
+void SensorBaseApp::infoFromPacket(cMessage* msg)
+{
+    Packet *packet = check_and_cast<Packet*>(msg);
 
-    auto req = pkt->peekAtFront<SensorDataRequest>();
-    lastFrameId = req->getFrameId();
-    delete pkt;
+    auto request = packet->peekAtFront<SensorDataRequest>();
+    lastFrameId = packet->getFrameId();
+    delete packet;
 
-    if (firstEmit || simTime() - lastEmitTime >= updateInterval) {
+    /*
+     * This if controls if the sensor can send or not the data
+     * according to its updateInterval.
+     *
+     * If it's the first message ever from the current sensor or
+     * if the updateInterval is elapsed then it sends the data
+     */
+    if (firstEmit || simTime() - lastEmitTime >= updateInterval)
+    {
         sendData();
         lastEmitTime = simTime();
         firstEmit = false;
     }
 }
 
-void SensorBaseApp::sendData() {
-    long dataSize = (long) par("dataSize").doubleValue();
+void SensorBaseApp::sendData()
+{
+    long dataSize = (long) par("dataSize").doubleValue(); // It's different for each sensor
 
-    auto pkt = new Packet("SensorData");
+    auto packet = new Packet("SensorData");
 
-    auto resp = makeShared<SensorDataResponse>();
-    resp->setStreamId(streamID);
-    resp->setSensorType(sensorType.c_str());
-    resp->setCollectionTime(simTime());
-    resp->setChunkLength(B(16));
-    pkt->insertAtBack(resp);
+    auto response = makeShared<SensorDataResponse>();
+    response->setStreamId(streamID);
+    response->setSensorType(sensorType.c_str());
+    response->setCollectionTime(simTime());
+    response->setChunkLength(B(16));
+    packet->insertAtBack(response);
 
     if (dataSize > 0)
-        pkt->insertAtBack(makeShared<ByteCountChunk>(B(dataSize)));
+    {
+        packet->insertAtBack(makeShared<ByteCountChunk>(B(dataSize)));
+    }
 
-    EV_INFO << getFullName() << " (" << sensorType << ") emette " << dataSize
-            << " B su stream " << streamID << endl;
-    send(pkt, "toManager");
+    EV_INFO << getFullName() << " (" << sensorType << ") sends " << dataSize
+            << " Byte su stream " << streamID << endl;
+    send(packet, "toManager");
 }

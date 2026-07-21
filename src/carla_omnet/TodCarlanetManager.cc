@@ -6,23 +6,13 @@ using namespace std;
 
 Define_Module(TodCarlanetManager);
 
-
-
-/*const map<string,cValue>& TodCarlanetManager::getExtraInitParams(){
-    auto extraInitParams = new cValueMap();
-    extraInitParams->set("carla_world_configuration",  cValue(par("carlaConfiguration").stdstringValue()));
-    return extraInitParams->getFields();
-}*/
-
 const std::map<std::string,cValue>& TodCarlanetManager::getExtraInitParams(){
     return check_and_cast<cValueMap*>(par("extraInitParams").objectValue())->getFields();
 }
 
-
 /*
  * PUBLIC APIs
  * */
-
 string TodCarlanetManager::getActorStatus(string actorId){
     EV_INFO << "Contact Carla for getting the status id: "<< actorId << endl;
     tod_carla_api::actor_status_update requestMsg;

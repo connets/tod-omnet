@@ -2,7 +2,6 @@ package tod_network.app;
 
 import inet.applications.contract.IApp;
 
-
 simple TODCarApp like IApp
 {
     parameters:
@@ -13,9 +12,11 @@ simple TODCarApp like IApp
         string destAddress = default("server");
         int destPort = default(3000);
         volatile int statusMessageLength @unit(byte) = default(8kB);
+
         // Fixed size of an instruction on stream 0 (server->car). MUST match
         // TODAgentApp.instructionMessageLength: framing unit to read one COMPLETE
-        // instruction at a time (QUIC may deliver several back-to-back).
+        // instruction at a time (QUIC may deliver several back-to-back) to avoid
+        // chunkSize conversion error.
         int instructionMessageLength @unit(byte) = default(1kB);
         int datagramChunkSize @unit(B) = default(1000B);  // It has to be less then max_datagram_size
         volatile double statusUpdateInterval @unit(s)  = default(0.016s);
@@ -24,7 +25,6 @@ simple TODCarApp like IApp
         volatile double collectionDataTime @unit(s) = default(15ms);
 
         bool zeroDelay = default(false);
-
 
         @signal[packetSent](type=inet::Packet);
         @signal[packetReceived](type=inet::Packet);

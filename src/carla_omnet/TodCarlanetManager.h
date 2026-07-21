@@ -30,9 +30,6 @@ using namespace inet;
 
 class TodCarlanetManager: public CarlanetManager {
 public:
-//    TodCarlanetManager();
-//    ~TodCarlanetManager();
-
     //API used by applications
     string getActorStatus(string actorId);
     void getActorStatusZeroDelay(string actorId);

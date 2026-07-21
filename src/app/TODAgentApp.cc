@@ -32,6 +32,15 @@ void ProcessStatusTimeFilter::receiveSignal(cResultFilter *prev, simtime_t_cref 
 {
     auto packet = check_and_cast<Packet*>(object);
 
+    /*
+     * Done to avoid chunk conversion error since the Agent handles
+     *      - sensor datagram data
+     *      - status update messages
+     *      - TODInstructionMessage
+     * during the simulation. Only TODInstructionMessage carries an
+     * instruction message and with the other messages peekData throws
+     * an error
+     */
     if (strncmp(packet->getName(), "SensorDatagram", 14) != 0)
     {
         return;
@@ -75,10 +84,13 @@ void TODAgentApp::handleMessageWhenUp(cMessage* msg)
     {
         if (msg->getKind() == PROCESS_STATUS_MESSAGE_KIND)
         {
-            ProcessedStatusMessage *pkt = dynamic_cast<ProcessedStatusMessage *>(msg);
-            calcAndSendnstruction(pkt);
-            delete pkt;   // self-message gia' scattato: va liberato, altrimenti leaka
-                          // un ProcessedStatusMessage per ogni status (undisposed a fine run)
+            ProcessedStatusMessage *packet = dynamic_cast<ProcessedStatusMessage*>(msg);
+            calcAndSendnstruction(packet);
+
+            /*
+             * Packet deletion to avoid leak during simulation
+             */
+            delete packet;
         }
     }
     else if (socket.belongsToSocket(msg))
@@ -87,64 +99,32 @@ void TODAgentApp::handleMessageWhenUp(cMessage* msg)
     }
     else
     {
-        for (QuicSocket *cs : clientSockets)
+        /*
+         * Handles various clients with their specific sockets
+         */
+        for (QuicSocket *clientSocket : clientSockets)
         {
-            if (cs->belongsToSocket(msg))
+            if (clientSocket->belongsToSocket(msg))
             {
-                cs->processMessage(msg);
+                clientSocket->processMessage(msg);
                 break;
             }
         }
     }
 }
 
-
+/*
+ * This method calculate and send the instruction to the TODCarApp
+ */
 void TODAgentApp::calcAndSendnstruction(ProcessedStatusMessage *todStatusMessage)
 {
-    auto actorId = todStatusMessage->getActorId();
-    auto statusId = todStatusMessage->getStatusId();
-    auto statusCreationTime = todStatusMessage->getStatusCreationTime();
-    auto statusCollectionTime = todStatusMessage->getCollectionTime();
-
-    EV_INFO << "handleStatusUpdateMessage " << actorId << "," << statusId << endl;
+    infoFromTodStatusMessage(todStatusMessage);
+    EV_INFO << "handleStatusUpdateMessage " << currentInfos.actorId << "," << currentInfos.statusId << endl;
 
     double lossRatio = computeLossRatio(todStatusMessage->getFrameId());
+    auto instructionId = carlaCommunicationManager->computeInstruction(currentInfos.actorId, currentInfos.statusId, agentId, lossRatio);
 
-    auto instructionId = carlaCommunicationManager->computeInstruction(actorId, statusId, agentId, lossRatio);
-
-    auto packet = new Packet("Instruction");
-    auto data = makeShared<TodInstructionMessage>();
-
-    data->setActorId(actorId);
-    data->setInstructionId(instructionId.c_str());
-    data->setStatusCreationTime(statusCreationTime);
-    data->setStatusDataCollectionTime(statusCollectionTime);
-    data->setStatusProcessingTime(todStatusMessage->getTimestamp());
-    data->setInstructionCreationTime(simTime());
-    data->setLossRatio(lossRatio);
-
-    auto creationTimeTag = data->addTag<CreationTimeTag>();
-    creationTimeTag->setCreationTime(simTime());
-
-    // Lunghezza fissa e byte-allineata per l'istruzione (come statusMessageLength
-    // lato TODCarApp). I messaggi FieldsChunk nascono con chunkLength = b(-1)
-    // (non impostata): senza questa riga QUIC, nel framing su stream 0, esegue
-    // B(region.length) su un valore non multiplo di 8 e lancia
-    // "Cannot convert between integer units".
-    data->setChunkLength(B(par("instructionMessageLength").intValue()));
-
-    packet->insertAtBack(data);
-
-    auto actorToReply = replySocketByActor.find(actorId);
-    if (actorToReply != replySocketByActor.end())
-    {
-        sendPacket(actorToReply->second, packet, 0);
-    }
-    else
-    {
-        EV_WARN << "No reply socket for actor " << actorId << ", dropping instruction" << endl;
-        delete packet;
-    }
+    createAndSendInstructionMessage(todStatusMessage, instructionId, lossRatio);
 }
 
 
@@ -162,7 +142,7 @@ void TODAgentApp::handleStartOperation(LifecycleOperation *operation)
     int localPort = par("localPort");
     socket.setOutputGate(gate("socketOut"));
     socket.bind(localAddress, localPort);
-    socket.listen(); // QUIC server: accept incoming connections
+    socket.listen();                          // QUIC server: accept incoming connections
     socket.setCallback(this);
 }
 
@@ -170,25 +150,24 @@ void TODAgentApp::handleStartOperation(LifecycleOperation *operation)
 void TODAgentApp::handleStopOperation(LifecycleOperation *operation)
 {
     socket.close();
-    for (QuicSocket *cs : clientSockets)
+    for (QuicSocket *clientSocket : clientSockets)
     {
-        cs->close();
+        clientSocket->close();
     }
 }
 
 void TODAgentApp::handleCrashOperation(LifecycleOperation *operation)
 {
     socket.setCallback(nullptr);
-    for (QuicSocket *cs : clientSockets)
+    for (QuicSocket *clientSocket : clientSockets)
     {
-        cs->setCallback(nullptr);
+        clientSocket->setCallback(nullptr);
     }
 }
 
 
 void TODAgentApp::socketConnectionAvailable(QuicSocket *socket)
 {
-    // QUIC server: a new connection is available, accept it.
     QuicSocket *clientSocket = socket->accept();
     clientSocket->setCallback(this);
     clientSockets.push_back(clientSocket);
@@ -198,32 +177,40 @@ void TODAgentApp::socketConnectionAvailable(QuicSocket *socket)
 
 void TODAgentApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo)
 {
-    // Lo status viaggia su stream 0 come messaggi discreti di dimensione fissa
-    // (TODCarApp fa setChunkLength(B(statusMessageLength))). QUIC pero' e' un byte
-    // stream: sotto carico di datagram sensori il frame STREAM dello status viene
-    // spezzato su piu' pacchetti (PacketBuilder impacchetta prima i DATAGRAM, poi lo
-    // stream nello spazio residuo). Se leggessimo i byte parziali disponibili
-    // consegneremmo un TodStatusUpdateMessage INCOMPLETO, e processPacket lancerebbe
-    // "Cannot convert chunk ... to inet::SensorDataResponse" (hasData<TODMessage>()
-    // e' false su un chunk incompleto e si cade nel ramo SensorDataResponse).
-    // Quindi leggiamo solo quando e' disponibile un messaggio COMPLETO, uno per volta;
-    // i byte restanti restano bufferati in QUIC e una nuova notifica arrivera' col
-    // prossimo frame.
+    /*
+     * The status update message is sent on stream 0 as fixed size messages.
+     *
+     * Under load of sensor datagrams the status update frame may be divided in
+     * more packets since PacketBuilder occupies all the possible space with datagrams
+     * and then the remaining space with the update status message.
+     * This causes to read partial bytes and processPacket could throw conversion
+     * errors.
+     *
+     * The solution is to read the message when there's one complete message
+     * available using the fixed message length to fetch data from the socket.
+     * The other bytes will be read in another moments and will remain bufferized
+     *
+     */
     const int64_t msgLen = par("statusMessageLength").intValue();
     if ((int64_t) dataInfo->getAvaliableDataSize() >= msgLen)
+    {
         socket->recv(msgLen, dataInfo->getStreamID());
+    }
 }
 
 void TODAgentApp::socketDataArrived(QuicSocket *socket, Packet *packet)
 {
     emit(packetReceivedSignal, packet);
     auto streamReq = packet->findTag<QuicStreamReq>();
-    int streamID = streamReq ? streamReq->getStreamID() : 0;
+    int streamId = streamReq ? streamReq->getStreamID() : 0;
 
-    EV_INFO << "Received packet from stream: " << streamID << endl;
+    EV_INFO << "Received packet from stream: " << streamId << endl;
 
-    processPacket(socket, packet, streamID);
+    processPacket(socket, packet, streamId);
 
+    /*
+     * Packet deletion to avoid leaks
+     */
     delete packet;
     numReceived++;
 }
@@ -294,35 +281,38 @@ void TODAgentApp::handleStatusUpdateMessage(QuicSocket *socket, Packet *statusPa
     uint64_t frameId = todStatusMessage->getFrameId();
     auto& frameAcc = frameStats[frameId];
 
-    // Flush of the old streams and new setup
+    /*
+     * Flush of the old streams and setting up streams where data come
+     * from in this frame
+     */
     frameAcc.expectedStreams.clear();
     for (size_t i = 0; i < todStatusMessage->getExpectedStreamsArraySize(); i++)
     {
         frameAcc.expectedStreams.push_back(todStatusMessage->getExpectedStreams(i));
     }
 
-    ProcessedStatusMessage *packet = new ProcessedStatusMessage("processStatusMessage", PROCESS_STATUS_MESSAGE_KIND);
-    packet->setActorId(todStatusMessage->getActorId());
-    packet->setStatusId(todStatusMessage->getStatusId());
-    packet->setStatusCreationTime(statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime());
-    packet->setCollectionTime(todStatusMessage->getCollectionTime());
-    packet->setFrameId(frameId);
-    packet->setTimestamp();
-
-    double processingStatusTime = par("processingStatusTime");
-    scheduleAfter(processingStatusTime, packet);
+    /*
+     * Self message scheduling to sim the time of processing the status update message
+     */
+    scheduleStatusMessage(todStatusMessage, statusPacket, frameId);
 }
 
-
+/*
+ * hasData and peekData throws conversion errors if the given chunk is not
+ * of the correct type.
+ * If on stream 0, for example, arrives a partial chunk with type SequenceChunk
+ * or SliceChunk... the simulation could crash with conversion error.
+ *
+ * To avoid this dynamicPrtCast can be used: does not throw and converts
+ * any message. With this the branch status is executed only when the message is
+ * a TODMessage and also the peekData from the handleStatusUpdateMessage
+ * cannot throw any kind of conversion error since TodStatusUpdateMessage is of type
+ * TODMessage
+ *
+ * If its type is SensorDataReponse we execute the other branch
+ */
 void TODAgentApp::processPacket(QuicSocket *socket, Packet *packet, int streamID)
 {
-    // hasData<T>()/peekData<T>() LANCIANO se il chunk non e' del tipo richiesto
-    // (convertChunk rifiuta la reinterpretazione di un FieldsChunk). Se su stream 0
-    // arriva un chunk non "pulito" (SequenceChunk/SliceChunk/...) il vecchio codice
-    // crashava con "Cannot convert ... to SensorDataResponse". Discriminiamo sul chunk
-    // grezzo con dynamicPtrCast: NON converte, NON lancia. Entriamo nel ramo status solo
-    // se il data part e' ESATTAMENTE un TODMessage, cosi' anche il peekData<TodStatusUpdateMessage>()
-    // dentro handleStatusUpdateMessage non puo' lanciare.
     auto dataChunk = packet->peekData<Chunk>();
     if (auto todMsg = dynamicPtrCast<const TODMessage>(dataChunk))
     {
@@ -332,7 +322,9 @@ void TODAgentApp::processPacket(QuicSocket *socket, Packet *packet, int streamID
             handleStatusUpdateMessage(socket, packet);
         }
         else
+        {
             EV_WARN << "Received an unexpected TOD Message " << todMsg->getMessageType() << " check your implementation" << endl;
+        }
     }
     else if (dynamicPtrCast<const SensorDataResponse>(dataChunk))
     {
@@ -340,28 +332,23 @@ void TODAgentApp::processPacket(QuicSocket *socket, Packet *packet, int streamID
     }
     else
     {
-        // DIAGNOSTICA: invece di crashare logghiamo COSA arriva di inatteso, per inchiodare
-        // il bug deterministico a t=14.511s. Cmdenv express mode nasconde EV_*, quindi cout.
-        // Cap a 20 righe per non spammare se il problema fosse persistente.
-        static int unexpectedCount = 0;
-        if (++unexpectedCount <= 20)
-            std::cout << "[TODAgentApp] unexpected chunk on stream " << streamID
-                      << " t=" << simTime()
-                      << " name=" << packet->getName()
-                      << " dataLen=" << packet->getDataLength()
-                      << " chunkType=" << (dataChunk ? dataChunk->getClassName() : "null")
-                      << std::endl;
+        EV_WARN << "Received an unexpected packet" << endl;
     }
 }
 
-
+/*
+ * This method counts all the sensor packet for a given frame and
+ * sets them inside a stats struct each with its stream and total
+ * fragments (written inside all of the packets)
+ */
 void TODAgentApp::countSensorData(Packet *packet)
 {
-    // a sensor datagram is [SensorDataResponse header | ByteCountChunk payload]
-    // (a SequenceChunk), so read only the FRONT header, not the whole packet.
     auto data = packet->peekAtFront<SensorDataResponse>();
     uint64_t frameId = data->getFrameId();
 
+    /*
+     * Drop of late frames
+     */
     if (frameId <= lastClosedFrame)
     {
         EV_INFO << "Datagram sensor frame " << frameId << " arrived after deadline" << endl;
@@ -376,26 +363,41 @@ void TODAgentApp::countSensorData(Packet *packet)
             << " (arrived " << stats.arrived << ")" << endl;
 }
 
-
+/*
+ * This method computes the loss ratio weighted for
+ * each stream (sensor).
+ */
 double TODAgentApp::computeLossRatio(uint64_t frameId)
 {
-    if (frameId > lastClosedFrame) lastClosedFrame = frameId;
+    if (frameId > lastClosedFrame)
+    {
+        lastClosedFrame = frameId;
+    }
 
-    auto frameAcc = frameStats.find(frameId);
-    if (frameAcc == frameStats.end())
+    auto stats = frameStats.find(frameId);
+    if (stats == frameStats.end())
     {
         return 0.0;
     }
 
-    FrameAcc &frameAccStats = frameAcc->second;
+    FrameAcc &frameAcc = stats->second;
 
     double sumWeighted = 0.0, sumWeightedLoss = 0.0;
-    for (uint64_t streamId : frameAccStats.expectedStreams)
+
+    /*
+     * Loop between all the EXPECTED streams
+     */
+    for (uint64_t streamId : frameAcc.expectedStreams)
     {
         double loss_s;
-        auto streamStats = frameAccStats.statsPerStream.find(streamId);
+        auto streamStats = frameAcc.statsPerStream.find(streamId);
 
-        if (streamStats == frameAccStats.statsPerStream.end() || streamStats->second.arrived == 0)
+        /*
+         * If the current stream has no stats or zero packets are arrived
+         * the loss ratio is equal to 1 otherwise it's possibile to
+         * compute it as follows
+         */
+        if (streamStats == frameAcc.statsPerStream.end() || streamStats->second.arrived == 0)
         {
             loss_s = 1.0;
         }
@@ -406,7 +408,7 @@ double TODAgentApp::computeLossRatio(uint64_t frameId)
 
             if (total <= 0)
             {
-                loss_s = 0.0;
+                loss_s = 0.0; // Fallback case (when totalFragments is a negative number)
             }
             else
             {
@@ -423,11 +425,67 @@ double TODAgentApp::computeLossRatio(uint64_t frameId)
         sumWeightedLoss += weightPerSensor * loss_s;
     }
 
+    /*
+     * Normalize the loss between 0 and 1
+     */
     double loss = (sumWeighted > 0.0) ? sumWeightedLoss / sumWeighted : 0.0;
 
     EV_INFO << "Frame " << frameId << ": weighted lossRatio " << loss
-            << " (expected sensors " << frameAccStats.expectedStreams.size() << ")" << endl;
+            << " (expected sensors " << frameAcc.expectedStreams.size() << ")" << endl;
 
-    frameStats.erase(frameAcc);
+    frameStats.erase(stats);
     return loss;
+}
+
+/*
+ * Helper functions
+ */
+void createAndSendInstructionMessage(ProcessedStatusMessage *todStatusMessage, auto instructionId, double lossRatio)
+{
+    auto packet = new Packet("Instruction");
+    auto data = makeShared<TodInstructionMessage>();
+
+    data->setActorId(currentInfos.actorId);
+    data->setInstructionId(instructionId.c_str());
+    data->setStatusCreationTime(currentInfos.statusCreationTime);
+    data->setStatusDataCollectionTime(currentInfos.statusCollectionTime);
+    data->setStatusProcessingTime(todStatusMessage->getTimestamp());
+    data->setInstructionCreationTime(simTime());
+    data->setLossRatio(lossRatio);
+
+    auto creationTimeTag = data->addTag<CreationTimeTag>();
+    creationTimeTag->setCreationTime(simTime());
+
+    /*
+     * The length of the message is fixed and aligned so that no conversion
+     * error can be thrown
+     */
+    data->setChunkLength(B(par("instructionMessageLength").intValue()));
+
+    packet->insertAtBack(data);
+
+    auto actorToReply = replySocketByActor.find(currentInfos.actorId);
+    if (actorToReply != replySocketByActor.end())
+    {
+        sendPacket(actorToReply->second, packet, 0);
+    }
+    else
+    {
+        EV_WARN << "No reply socket for actor " << currentInfos.actorId << ", dropping instruction" << endl;
+        delete packet;
+    }
+}
+
+void scheduleStatusMessage(auto todStatusMessage, Packet *statusPacket, uint64_t frameId)
+{
+    ProcessedStatusMessage *packet = new ProcessedStatusMessage("processStatusMessage", PROCESS_STATUS_MESSAGE_KIND);
+    packet->setActorId(todStatusMessage->getActorId());
+    packet->setStatusId(todStatusMessage->getStatusId());
+    packet->setStatusCreationTime(statusPacket->peekData<TodStatusUpdateMessage>()->getAllTags<CreationTimeTag>()[0].getTag()->getCreationTime());
+    packet->setCollectionTime(todStatusMessage->getCollectionTime());
+    packet->setFrameId(frameId);
+    packet->setTimestamp();
+
+    double processingStatusTime = par("processingStatusTime");
+    scheduleAfter(processingStatusTime, packet);
 }

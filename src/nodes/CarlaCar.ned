@@ -37,9 +37,6 @@ module CarlaCar extends NrUe
         // registerService(udp, appIn, appOut)) i.e. on the 'at' dispatcher, so wire
         // QUIC's internal UdpSocket (quic.udpIn/udpOut) to 'at' where udp is
         // reachable. Udp then handles the network side via udp.ipOut --> tn --> NIC.
-        // (INET StandardHost instead wires quic to 'tn' + an at<->tn link, but on
-        // simu5g's LteUe dispatcher layout that makes the client's Initial packet
-        // loop straight back into quic.udpIn -> "Unexpected packet".)
         quic.udpIn <-- at.out++;
         quic.udpOut --> at.in++;
 

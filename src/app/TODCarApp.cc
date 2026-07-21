@@ -265,12 +265,9 @@ void TODCarApp::socketClosed(QuicSocket *socket) {}
  */
 void TODCarApp::sendSensorPacket(Packet *packet, uint64_t frameId)
 {
-    auto source = packet->peekAtFront<SensorDataResponse>(); // Contains all the info of the sensor
-
-    uint64_t streamId = source->getStreamId();
-    string sensorType = source->getSensorType();
-    simtime_t collectionTime = source->getCollectionTime();
-    int64_t headerBytes = B(source->getChunkLength()).get();
+    // Contains all the info of the sensor
+    auto source = packet->peekAtFront<SensorDataResponse>();
+    infoFromSource(source);
 
     int64_t dataBytes = B(packet->getByteLength()).get() - headerBytes;
     if (dataBytes < 0)
@@ -284,33 +281,9 @@ void TODCarApp::sendSensorPacket(Packet *packet, uint64_t frameId)
         chunkSize = 1000;
     }
 
-    int totalFragments = (dataBytes <= 0) ? 1 : (int) ((dataBytes + chunkSize - 1) / chunkSize);
+    int totalFragments = fragmentNumber(dataBytes, chunkSize);
 
-    for (int fragment = 0; fragment < totalFragments; fragment++)
-    {
-        auto newFragmentPacket = new Packet("SensorDatagram");
-        auto data = makeShared<SensorDataResponse>();
-
-        data->setStreamId(streamId);
-        data->setFrameId(frameId);
-        data->setFragmentNum(fragment);
-        data->setTotalFragments(totalFragments);
-        data->setSensorType(sensorType.c_str());
-        data->setCollectionTime(collectionTime);
-        data->setChunkLength(B(headerBytes));
-        newFragmentPacket->insertAtBack(data);
-
-        int64_t remaining = dataBytes - (int64_t) fragment * chunkSize;
-        int64_t thisChunk = remaining < chunkSize ? remaining : chunkSize;
-        if (thisChunk > 0)
-        {
-            newFragmentPacket->insertAtBack(makeShared<ByteCountChunk>(B(thisChunk)));
-        }
-
-        EV_INFO << "TODCarApp: datagram del sensore su stream " << streamId << ", per il frame " << frameId << " e frammento " << fragment << "/" << totalFragments << endl;
-        emit(packetSentSignal, newFragmentPacket);
-        socket.sendDatagram(newFragmentPacket);
-    }
+    createAndSendFragmentPacket(totalFragments, dataBytes, chunkSize, frameId);
 
     delete packet;
 }
@@ -328,25 +301,24 @@ void TODCarApp::sendUpdatePacket(Packet *packet)
 }
 
 
-// implementazione di diversi teleoperatori?
-void TODCarApp::processPacket(Packet *pk)
+void TODCarApp::processPacket(Packet *packet)
 {
-    if (pk->hasData<TODMessage>())
+    if (packet->hasData<TODMessage>())
     {
-        if (pk->peekData<TODMessage>()->getMessageType() == TODMessageType::INSTRUCTION)
+        //TODO: COOP MESSAGE
+        if (packet->peekData<TODMessage>()->getMessageType() == TODMessageType::INSTRUCTION)
         {
-            auto message = pk->peekData<TodInstructionMessage>();
+            auto message = packet->peekData<TodInstructionMessage>();
             carlaCommunicationManager->applyInstruction(message->getActorId(), message->getInstructionId());
         }
-        //TODO: COOP MESSAGE
         else
         {
-            EV_WARN << "Received an unexpected TOD Message " <<  pk->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
+            EV_WARN << "Received an unexpected TOD Message " <<  packet->peekData<TODMessage>()->getMessageType()  << " check your implementation"<< endl;
         }
     }
     else
     {
-        EV_WARN << "Received an unexpected packet "<< pk->getName() <<endl;
+        EV_WARN << "Received an unexpected packet "<< packet->getName() <<endl;
     }
 }
 
@@ -356,11 +328,11 @@ void TODCarApp::processPacket(Packet *pk)
 void TODCarApp::applyZeroDelay()
 {
     auto mobilityModule = check_and_cast<CarlaInetMobility*>(getContainingNode(this)->getSubmodule("mobility"));
-    std::string carlaID = mobilityModule->getCarlaId();
+    string carlaID = mobilityModule->getCarlaId();
     carlaCommunicationManager->getActorStatusZeroDelay(carlaID);
-    for (auto pk : sensorBuffer)
+    for (auto packet : sensorBuffer)
     {
-        delete pk;
+        delete packet;
     }
 
     sensorBuffer.clear();
@@ -395,10 +367,11 @@ void TODCarApp::createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, st
         data->setExpectedStreams(idx++, stream);
     }
 
-    // Give the status message a fixed, byte-aligned length (it represents the
-    // encoded frame). Without this the auto-computed bit length isn't a multiple
-    // of 8, and QUIC's B(getChunkLength()) on stream send throws
-    // "Cannot convert between integer units".
+    /*
+     * Assign a fixed size (byte aligned) to the status update message.
+     * Without alignment the length is not a multiple of 8 and
+     * in QUIC, B(getChunkLength()) throws a conversion error
+     */
     data->setChunkLength(B(statusMessageLength));
 
     auto creationTimeTag = data->addTag<CreationTimeTag>();
@@ -409,4 +382,33 @@ void TODCarApp::createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, st
     streamReq->setStreamID(0);
 
     sendUpdatePacket(packet);
+}
+
+void TODCarApp::createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize, uint64_t frameId)
+{
+    for (int fragment = 0; fragment < totalFragments; fragment++)
+    {
+        auto newFragmentPacket = new Packet("SensorDatagram");
+        auto data = makeShared<SensorDataResponse>();
+
+        data->setStreamId(currentSource.streamId);
+        data->setFrameId(frameId);
+        data->setFragmentNum(fragment);
+        data->setTotalFragments(totalFragments);
+        data->setSensorType(currentSource.sensorType.c_str());
+        data->setCollectionTime(currentSource.collectionTime);
+        data->setChunkLength(B(currentSource.headerBytes));
+        newFragmentPacket->insertAtBack(data);
+
+        int64_t remaining = dataBytes - (int64_t) fragment * chunkSize;
+        int64_t thisChunk = remaining < chunkSize ? remaining : chunkSize;
+        if (thisChunk > 0)
+        {
+            newFragmentPacket->insertAtBack(makeShared<ByteCountChunk>(B(thisChunk)));
+        }
+
+        EV_INFO << "TODCarApp: datagram del sensore su stream " << streamId << ", per il frame " << frameId << " e frammento " << fragment << "/" << totalFragments << endl;
+        emit(packetSentSignal, newFragmentPacket);
+        socket.sendDatagram(newFragmentPacket);
+    }
 }

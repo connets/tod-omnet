@@ -2,7 +2,6 @@
 
 using json = nlohmann::json;
 
-
 namespace tod_carla_api{
     /* OMNET --> CARLA*/
     struct actor_status_update {

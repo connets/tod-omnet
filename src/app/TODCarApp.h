@@ -64,6 +64,16 @@ private:
     vector<Packet*> sensorBuffer;
     set<uint64_t> streamsThisFrame;
 
+    struct SensorSource
+    {
+        uint64_t streamId;
+        string sensorType;
+        simtime_t collectionTime;
+        int64_t headerBytes;
+    };
+
+    SensorSource currentSource;
+
 protected:
     QuicSocket socket;
     L3Address destAddress;
@@ -72,6 +82,27 @@ protected:
 private:
     virtual void applyZeroDelay();
     virtual void createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, string statusId, uint64_t frameId, string carlaID);
+    virtual void createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize, uint64_t frameId);
+
+    void infoFromSource(auto *source)
+    {
+        currentSource = {};
+        currentSource.streamId = source->getStreamId();
+        currentSource.sensorType = source->getSensorType();
+        currentSource.collectionTime = source->getCollectionTime();
+        currentSource.headerBytes = B(source->getChunkLength()).get();
+    }
+
+    /*
+     * If dataBytes are less or equal then zero there's 1 fragment; otherwise
+     * it returns the number of fragments.
+     *
+     * (dataBytes + chunkSize - 1): make sure to get more fragment if the dataBytes
+     * are not multiple of chunkSize
+     */
+    int fragmentNumber(int64_t dataBytes, int64_t chunkSize) {
+        return (dataBytes <= 0) ? 1 : (int) ((dataBytes + chunkSize - 1) / chunkSize);
+    }
 
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
