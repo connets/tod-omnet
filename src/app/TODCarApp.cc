@@ -36,19 +36,25 @@ void StatusCreationTime::receiveSignal(cResultFilter *prev, simtime_t_cref t, cO
     auto packet = check_and_cast<Packet*>(object);
 
     /*
-     * Done to avoid chunk conversion error since both status update message
-     * and sensor datagram are fired during the simulation: only TodStatusUpdateMessage
-     * carries a Status Update Message causing peekData to throw an error when
-     * called on a sensor datagram
+     * Stream 0 removed: the frame is now made only of SensorDatagram fragments.
+     * packetSent fires on every fragment, so we peek the collection time on a
+     * sensor datagram and fire only ONCE per frame, when the statusId changes
+     * (all fragments of a frame are emitted back-to-back with the same id).
      */
-    if (strncmp(packet->getName(), "StatusUpdate", 12) != 0)
+    if (strncmp(packet->getName(), "SensorDatagram", 14) != 0)
     {
         return;
     }
 
-    simtime_t retrievalTime = packet->peekData<TodStatusUpdateMessage>()->getCollectionTime();
+    auto data = packet->peekAtFront<SensorData>();
+    string statusId = data->getStatusId();
+    if (statusId == lastFiredStatusId)
+    {
+        return;
+    }
+    lastFiredStatusId = statusId;
 
-    auto instrucionDelay = simTime() - retrievalTime;
+    auto instrucionDelay = simTime() - data->getCollectionTime();
 
     fire(this, simTime(), instrucionDelay,  details);
 }
@@ -198,8 +204,11 @@ void TODCarApp::retrieveStatusData()
 
 
 /*
- * This method send the status update packet via stream 0 to the agent and all
- * the frame datagrams to the agent using QUIC Datagram protocol
+ * Sends the whole frame to the agent using ONLY the QUIC DATAGRAM protocol:
+ * one or more SensorData fragments per sampled sensor. Every fragment
+ * self-describes the frame (statusId + expectedStreams), so the agent can open
+ * the frame from the first fragment that survives. Everything is correlated by
+ * statusId (the opaque CARLA status id).
  */
 void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
 {
@@ -207,7 +216,7 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
     EV_INFO << "TODCarApp::sendUpdateStatusPacket setting zero delay to => " << zeroDelay << endl;
 
     auto mobilityModule = check_and_cast<CarlaInetMobility*>(getContainingNode(this)->getSubmodule("mobility"));
-    string carlaID = mobilityModule->getCarlaId();
+    string carlaId = mobilityModule->getCarlaId();
 
     EV_INFO << "TODCarApp::sendUpdateStatusPacket zeroDelay "<< zeroDelay << endl;
 
@@ -217,24 +226,37 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
         return;
     }
 
-    string statusId = carlaCommunicationManager->getActorStatus(carlaID);
-    uint64_t frameId = ++frameCounter;
+    string statusId = carlaCommunicationManager->getActorStatus(carlaId);
 
-    createAndSendStatusUpdateMessage(dataRetrievalTime, statusId, frameId, carlaID);
+    if (sensorBuffer.empty())
+    {
+        EV_INFO << "TODCarApp: empty sensor buffer for status " << statusId << ", skipping frame" << endl;
+        return;
+    }
+
+    streamsThisFrame.clear();
+    for (auto packet : sensorBuffer)
+    {
+        streamsThisFrame.insert(packet->peekAtFront<SensorDataResponse>()->getStreamId());
+    }
 
     for(; not sensorBuffer.empty(); sensorBuffer.pop_back())
     {
-        sendSensorPacket(sensorBuffer.back(), frameId);
+        sendSensorPacket(sensorBuffer.back(), statusId, carlaId);
     }
 }
 
-void TODCarApp::socketDataArrived(QuicSocket *socket, Packet *packet)
+/*
+ * The instruction from the agent travels as a QUIC DATAGRAM.
+ * It is a single fixed-size TodInstructionMessage that always fits in one datagram,
+ * so no reassembly/framing is needed.
+ */
+void TODCarApp::socketDatagramArrived(QuicSocket *socket, Packet *packet)
 {
     emit(packetReceivedSignal, packet);
     processPacket(packet);
     delete packet;
 }
-
 
 void TODCarApp::socketEstablished(QuicSocket *socket)
 {
@@ -242,20 +264,12 @@ void TODCarApp::socketEstablished(QuicSocket *socket)
     scheduleAt(simTime() + statusUpdateInterval, updateStatusSelfMessage);
 }
 
-/*
- * The instructions arrive on stream 0 as messages with a fix dimension:
- * if we read all the available bytes we could potentially read more then one instruction
- * at time. This creates an object called SequenceChunk that it's not a TodInstructionMessage
- * causing receive signal to throw a conversion error on its peekData
- */
-void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo)
+void TODCarApp::socketDataArrived(QuicSocket *socket, Packet *packet)
 {
-    const int64_t msgLen = par("instructionMessageLength").intValue(); // Fixed message dimension
-    if ((int64_t) dataInfo->getAvaliableDataSize() >= msgLen)
-    {
-        socket->recv(msgLen, dataInfo->getStreamID());
-    }
+    delete packet;
 }
+
+void TODCarApp::socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo) {}
 
 void TODCarApp::socketClosed(QuicSocket *socket) {}
 
@@ -263,13 +277,13 @@ void TODCarApp::socketClosed(QuicSocket *socket) {}
  * This method send to the Agent all the sensor packet using the QUIC
  * Datagram protocol
  */
-void TODCarApp::sendSensorPacket(Packet *packet, uint64_t frameId)
+void TODCarApp::sendSensorPacket(Packet *packet, string statusId, string carlaId)
 {
     // Contains all the info of the sensor
     auto source = packet->peekAtFront<SensorDataResponse>();
-    infoFromSource(source);
+    infoFromSource(source, statusId, carlaId);
 
-    int64_t dataBytes = B(packet->getByteLength()).get() - headerBytes;
+    int64_t dataBytes = B(packet->getByteLength()).get() - currentSource.headerBytes;
     if (dataBytes < 0)
     {
         dataBytes = 0;
@@ -283,7 +297,7 @@ void TODCarApp::sendSensorPacket(Packet *packet, uint64_t frameId)
 
     int totalFragments = fragmentNumber(dataBytes, chunkSize);
 
-    createAndSendFragmentPacket(totalFragments, dataBytes, chunkSize, frameId);
+    createAndSendFragmentPacket(totalFragments, dataBytes, chunkSize);
 
     delete packet;
 }
@@ -293,13 +307,6 @@ void TODCarApp::bufferizeSensorData(cMessage* msg)
     Packet* pkt = check_and_cast<Packet*>(msg);
     sensorBuffer.push_back(pkt);
 }
-
-void TODCarApp::sendUpdatePacket(Packet *packet)
-{
-    emit(packetSentSignal, packet);
-    socket.send(packet, 0);
-}
-
 
 void TODCarApp::processPacket(Packet *packet)
 {
@@ -338,65 +345,40 @@ void TODCarApp::applyZeroDelay()
     sensorBuffer.clear();
 }
 
-void TODCarApp::createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, string statusId, uint64_t frameId, string carlaID)
+/*
+ * Fills the expectedStreams[] array of a network chunk with the set of streams
+ * sampled in this frame. streamsThisFrame is computed ONCE per frame in
+ * sendUpdateStatusPacket(), before the send loop drains sensorBuffer.
+ */
+template <typename ChunkPtr>
+static void fillExpectedStreams(ChunkPtr &data, const set<uint64_t> &streams)
 {
-    L3AddressResolver().tryResolve(par("destAddress"), destAddress);
-    EV_INFO << "Send status update for id: "<< carlaID << " to: "<< destAddress<<":"<<destPort<< endl;
-
-    int statusMessageLength = par("statusMessageLength").intValue();
-    EV_INFO << "Send status update message" << endl;
-
-    auto packet = new Packet((string("StatusUpdate_")+statusId).c_str());
-    auto data = makeShared<TodStatusUpdateMessage>();
-
-    data->setActorId(carlaID.c_str());
-    data->setStatusId(statusId.c_str());
-    data->setCollectionTime(dataRetrievalTime);
-    data->setFrameId(frameId);
-
-    streamsThisFrame.clear(); // Flush of previous streams
-    for (auto packet : sensorBuffer)
-    {
-        streamsThisFrame.insert(packet->peekAtFront<SensorDataResponse>()->getStreamId());
-    }
-
-    data->setExpectedStreamsArraySize(streamsThisFrame.size());
+    data->setExpectedStreamsArraySize(streams.size());
     int idx = 0;
-    for (uint64_t stream : streamsThisFrame)
+    for (uint64_t stream : streams)
     {
         data->setExpectedStreams(idx++, stream);
     }
-
-    /*
-     * Assign a fixed size (byte aligned) to the status update message.
-     * Without alignment the length is not a multiple of 8 and
-     * in QUIC, B(getChunkLength()) throws a conversion error
-     */
-    data->setChunkLength(B(statusMessageLength));
-
-    auto creationTimeTag = data->addTag<CreationTimeTag>();
-    creationTimeTag->setCreationTime(simTime());
-
-    packet->insertAtBack(data);
-    auto streamReq = packet->addTag<QuicStreamReq>();
-    streamReq->setStreamID(0);
-
-    sendUpdatePacket(packet);
 }
 
-void TODCarApp::createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize, uint64_t frameId)
+void TODCarApp::createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize)
 {
     for (int fragment = 0; fragment < totalFragments; fragment++)
     {
         auto newFragmentPacket = new Packet("SensorDatagram");
-        auto data = makeShared<SensorDataResponse>();
+        auto data = makeShared<SensorData>();
 
+        data->setStatusId(currentSource.statusId.c_str());
+        data->setActorId(currentSource.carlaId.c_str());
         data->setStreamId(currentSource.streamId);
-        data->setFrameId(frameId);
         data->setFragmentNum(fragment);
         data->setTotalFragments(totalFragments);
         data->setSensorType(currentSource.sensorType.c_str());
         data->setCollectionTime(currentSource.collectionTime);
+
+        // Expected stream set is the same for every fragment of the frame
+        fillExpectedStreams(data, streamsThisFrame);
+
         data->setChunkLength(B(currentSource.headerBytes));
         newFragmentPacket->insertAtBack(data);
 
@@ -407,7 +389,9 @@ void TODCarApp::createAndSendFragmentPacket(int totalFragments, int64_t dataByte
             newFragmentPacket->insertAtBack(makeShared<ByteCountChunk>(B(thisChunk)));
         }
 
-        EV_INFO << "TODCarApp: datagram del sensore su stream " << streamId << ", per il frame " << frameId << " e frammento " << fragment << "/" << totalFragments << endl;
+        EV_INFO << "TODCarApp: sensor datagram on stream " << currentSource.streamId
+                << ", status " << currentSource.statusId << ", fragment "
+                << fragment << "/" << totalFragments << endl;
         emit(packetSentSignal, newFragmentPacket);
         socket.sendDatagram(newFragmentPacket);
     }

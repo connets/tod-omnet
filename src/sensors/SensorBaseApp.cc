@@ -37,7 +37,7 @@ void SensorBaseApp::infoFromPacket(cMessage* msg)
     Packet *packet = check_and_cast<Packet*>(msg);
 
     auto request = packet->peekAtFront<SensorDataRequest>();
-    lastFrameId = packet->getFrameId();
+    // lastFrameId = packet->getFrameId();
     delete packet;
 
     /*

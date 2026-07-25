@@ -70,10 +70,9 @@ void SensorManager::retrieveData()
         auto packet = new Packet("SensorReq");
         auto request = makeShared<SensorDataRequest>();
 
-        request->setFrameId(frameId);
         request->setRequestTime(simTime());
         request->setChunkLength(B(8));
-        packet->insertAtBack(req);
+        packet->insertAtBack(request);
         send(packet, "toSensors", i);
     }
 }

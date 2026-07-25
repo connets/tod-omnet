@@ -10,6 +10,8 @@
 #include <omnetpp.h>
 #include <vector>
 #include <map>
+#include <set>
+#include <string>
 
 #include "../carla_omnet/TodCarlanetManager.h"
 #include "inet/networklayer/common/L3Address.h"
@@ -29,20 +31,14 @@ class ProcessStatusTimeFilter : public cObjectResultFilter{
 
 Register_ResultFilter("processStatusTime", ProcessStatusTimeFilter);
 
-
-/**
- * QUIC teleoperator (agent) application. See NED for more info.
- */
 class TODAgentApp : public ApplicationBase, public QuicSocket::ICallback
 {
 private:
-    const int PROCESS_STATUS_MESSAGE_KIND = 1;
+    const int CLOSE_FRAME_MSG_KIND = 1;             // per-frame close timer
+    const int WATCHDOG_MSG_KIND = 2;                // per-actor 100%-loss detector
     TodCarlanetManager* carlaCommunicationManager;
     string agentId;
-
-    map<pair<string,string>, int> reassembleStatusPacketsMap;
-
-    bool reassembleStatusPacket(string actorId, string statusId, int numFragments); //returns true if all fragments have been received
+    double reuseDecay;
 
     struct SensorAcc
     {
@@ -52,22 +48,35 @@ private:
 
     struct FrameAcc
     {
-        vector<uint64_t> expectedStreams;              // List of all streams for this frame
-        map<uint64_t, SensorAcc> statsPerStream;       // For each stream saves the stats of the specific sensor
+        string actorId;
+        vector<uint64_t> expectedStreams;
+        map<uint64_t, SensorAcc> statsPerStream;
+        simtime_t collectionTime;
+        simtime_t firstArrivalTime;
+        cMessage* closeTimer = nullptr;
     };
+    map<string, FrameAcc> openFrames;
+    set<string> closedFrames;
 
-    map<uint64_t, FrameAcc> frameStats;                // Stats for each frame
-    uint64_t lastClosedFrame = 0;                      // Closing frame id to ignore all other packets
 
-    struct InfoFromTSM
+    struct StreamHistory
     {
-        auto actorId;
-        auto statusId;
-        auto statusCreationTime;
-        auto statusCollectionTime;
+        double lastGoodRatio = 0.0;                    // fraction received the last time it delivered
+        uint64_t expectCount = 0;                      // how many times this stream has been expected
+        uint64_t lastGoodExpectCount = 0;              // expectCount when it last delivered
+        bool hasHistory = false;
     };
+    map<string, map<uint64_t, StreamHistory>> streamHistory;   // actorId -> streamId -> history
 
-    InfoFromTSM currentInfos;
+
+    struct ActorWatch
+    {
+        ProcessedStatusMessage* timer = nullptr;
+        simtime_t lastFrameOpenTime = 0;        // when the last frame opened (any datagram)
+        string lastStatusId;                    // last statusId that produced an instruction
+        vector<uint64_t> lastExpectedStreams;   // expected set of the last received frame
+    };
+    map<string, ActorWatch> actorWatch;         // actorId -> watchdog state
 
 protected:
     QuicSocket socket;                                 // listening socket
@@ -79,26 +88,20 @@ protected:
     int numReceived = 0;
 
 private:
-    void infoFromTodStatusMessage(ProcessedStatusMessage *todStatusMessage) {
-        currentInfos = {};
-        currentInfos.actorId = todStatusMessage->getActorId();
-        currentInfos.statusId = todStatusMessage->getStatusId();
-        currentInfos.statusCreationTime = todStatusMessage->getStatusCreationTime();
-        currentInfos.statusCollectionTime = todStatusMessage->getCollectionTime();
-    }
-
-    void countSensorData(Packet *packet);
-    double computeLossRatio(uint64_t frameId);
-    void createAndSendInstructionMessage(ProcessedStatusMessage *todStatusMessage, auto instructionId, double lossRatio);
-    void scheduleStatusMessage(auto todStatusMessage, Packet *statusPacket, uint64_t frameId);
-
+    void openFrame(const string& statusId, const string& actorId,
+                   const vector<uint64_t>& expectedStreams, simtime_t collectionTime,
+                   QuicSocket* replySocket);
+    void countSensorData(QuicSocket* socket, Packet* packet);
+    void closeFrame(const string& statusId);
+    double computeLossRatio(FrameAcc& frame, const string& actorId);
+    void createAndSendInstructionMessage(FrameAcc& frame, const string& statusId,
+                                         const string& instructionId, double lossRatio);
+    void watchdogTick(const string& actorId);
 
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
 
-    //handle application logic
-    virtual void handleStatusUpdateMessage(QuicSocket *socket, Packet *packet);
     virtual void handleMessageWhenUp(cMessage *msg) override;
     virtual void finish() override;
     virtual void refreshDisplay() const override;
@@ -106,11 +109,10 @@ protected:
     virtual void handleStartOperation(LifecycleOperation *operation) override;
     virtual void handleStopOperation(LifecycleOperation *operation) override;
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
-    virtual void calcAndSendnstruction(ProcessedStatusMessage *todStatusMessage);
 
     /* QUIC socket callbacks (QuicSocket::ICallback) */
+    virtual void socketDatagramArrived(QuicSocket *socket, Packet *packet) override;
     virtual void socketDataArrived(QuicSocket *socket, Packet *packet) override;
-    virtual void socketDatagramArrived(QuicSocket *socket, Packet *packet) override;   // RFC 9221: dati-sensore
     virtual void socketDataAvailable(QuicSocket *socket, QuicDataInfo *dataInfo) override;
     virtual void socketConnectionAvailable(QuicSocket *socket) override;
     virtual void socketEstablished(QuicSocket *socket) override { }
@@ -119,10 +121,6 @@ protected:
     virtual void socketSendQueueFull(QuicSocket *socket) override { }
     virtual void socketSendQueueDrain(QuicSocket *socket) override { }
     virtual void socketMsgRejected(QuicSocket *socket) override { }
-
-    virtual void sendPacket(QuicSocket *socket, Packet *packet, uint64_t streamId);
-    virtual void processPacket(QuicSocket *socket, Packet *pk, int streamID);
-
 
 public:
     ~TODAgentApp();

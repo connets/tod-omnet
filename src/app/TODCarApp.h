@@ -35,6 +35,7 @@ class InstructionDelayResultFilter : public cObjectResultFilter{
 };
 
 class StatusCreationTime : public cObjectResultFilter{
+    string lastFiredStatusId;   // fire the per-frame stat only once per statusId
     virtual void receiveSignal(cResultFilter *prev, simtime_t_cref t, cObject *object, cObject *details) override;
 };
 
@@ -59,13 +60,15 @@ private:
     const char *actorId;
     const int CREATION_STATUS_DATA_MSG_KIND = 2;
     bool zeroDelay;
-    uint64_t frameCounter = 0; // It resets in each flush of the status update
+    // uint64_t frameCounter = 0; // It resets in each flush of the status update
 
     vector<Packet*> sensorBuffer;
     set<uint64_t> streamsThisFrame;
 
     struct SensorSource
     {
+        string statusId;
+        string carlaId;
         uint64_t streamId;
         string sensorType;
         simtime_t collectionTime;
@@ -81,12 +84,14 @@ protected:
 
 private:
     virtual void applyZeroDelay();
-    virtual void createAndSendStatusUpdateMessage(simtime_t dataRetrievalTime, string statusId, uint64_t frameId, string carlaID);
-    virtual void createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize, uint64_t frameId);
+    virtual void createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize);
 
-    void infoFromSource(auto *source)
+    template <typename SourcePtr>
+    void infoFromSource(const SourcePtr &source, string statusId, string carlaId)
     {
         currentSource = {};
+        currentSource.statusId = statusId;
+        currentSource.carlaId = carlaId;
         currentSource.streamId = source->getStreamId();
         currentSource.sensorType = source->getSensorType();
         currentSource.collectionTime = source->getCollectionTime();
@@ -100,7 +105,8 @@ private:
      * (dataBytes + chunkSize - 1): make sure to get more fragment if the dataBytes
      * are not multiple of chunkSize
      */
-    int fragmentNumber(int64_t dataBytes, int64_t chunkSize) {
+    int fragmentNumber(int64_t dataBytes, int64_t chunkSize)
+    {
         return (dataBytes <= 0) ? 1 : (int) ((dataBytes + chunkSize - 1) / chunkSize);
     }
 
@@ -115,12 +121,12 @@ protected:
     virtual void handleStopOperation(LifecycleOperation *operation) override;
     virtual void handleCrashOperation(LifecycleOperation *operation) override;
 
-
-    virtual void retrieveStatusData();
     /*Application logic*/
+    virtual void retrieveStatusData();
     virtual void sendUpdateStatusPacket(simtime_t dataRetrievalTime);
 
     /* QUIC socket callbacks (QuicSocket::ICallback) */
+    virtual void socketDatagramArrived(QuicSocket* socket, Packet* packet) override;
     virtual void socketDataArrived(QuicSocket* socket, Packet* packet) override;
     virtual void socketDataAvailable(QuicSocket* socket, QuicDataInfo* dataInfo) override;
     virtual void socketEstablished(QuicSocket* socket) override;
@@ -132,8 +138,7 @@ protected:
     virtual void socketMsgRejected(QuicSocket* socket) override { }
 
     virtual void bufferizeSensorData(cMessage* msg);
-    virtual void sendSensorPacket(Packet* pk, uint64_t frameId);
-    virtual void sendUpdatePacket(Packet* pk);
+    virtual void sendSensorPacket(Packet* pk, string statusId, string carlaId);
     virtual void processPacket(Packet* pk);
 
 public:

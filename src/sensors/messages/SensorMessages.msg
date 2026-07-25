@@ -16,20 +16,43 @@ import inet.common.packet.chunk.Chunk;
 
 namespace inet;
 
-// Datas request from sensorManager towards a sensor
+//
+// Intra-vehicle chunks (sensor <-> SensorManager <-> TODCarApp).
+// These NEVER leave the vehicle: they are inserted as chunks into a Packet on
+// the internal gates, so they MUST be FieldsChunk (not `message`).
+//
+
+// Poll sent by the SensorManager towards a single sensor.
 class SensorDataRequest extends FieldsChunk
 {
-    uint64_t frameId;
     simtime_t requestTime;
 }
 
-// Response from sensor to sensorManager
+// Raw answer of a sensor to the SensorManager (then forwarded to the car).
 class SensorDataResponse extends FieldsChunk
 {
     uint64_t streamId;
-    uint64_t frameId;
+    string sensorType;
+    simtime_t collectionTime;
+}
+
+//
+// Network chunks (TODCarApp <-> TODAgentApp over QUIC DATAGRAM).
+// Everything is correlated by statusId (the opaque CARLA status id): there is
+// no more numeric frameId and no more stream 0.
+//
+
+// One fragment of a sensor payload. Every fragment self-describes the whole
+// frame (statusId + expectedStreams) so the agent can reconstruct the frame
+// even if the frame header is lost.
+class SensorData extends FieldsChunk
+{
+    string statusId;
+    string actorId;
+    uint64_t streamId;
     uint64_t fragmentNum;
     uint64_t totalFragments;
+    uint64_t expectedStreams[];  // streamIds sampled in this frame
 
     string sensorType;
     simtime_t collectionTime;
