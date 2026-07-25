@@ -8,6 +8,7 @@ import inet.node.inet.StandardHost;
 import simu5g.common.binder.Binder;
 import simu5g.common.carrierAggregation.CarrierAggregation;
 import simu5g.nodes.gNodeB;
+import simu5g.nodes.NrUe;
 import simu5g.nodes.Upf;
 import simu5g.world.radio.LteChannelControl;
 import tod_network.carla_omnet.TodCarlanetManager;
@@ -36,6 +37,10 @@ network DatagramNet
 {
     parameters:
         int numUe = default(0);
+        // Non-TOD vehicles: plain NR UEs that only load the cells (no TOD app, no
+        // CARLA actor behind them). 0 keeps the baseline scenario untouched, so runs
+        // made before they existed stay comparable.
+        int numBgVehicles = default(0);
     submodules:
         channelControl: LteChannelControl { @display("p=50,25;is=s"); }
         routingRecorder: RoutingTableRecorder { @display("p=50,75;is=s"); }
@@ -53,6 +58,7 @@ network DatagramNet
         gnb4: gNodeB { @display("p=890,360;is=vl"); }
         VectorHero[1]: CarlaCar { @display("p=628,460"); }          // static TOD ego
         VectorVehicle[0]: CarlaCar { @display("p=628,519"); }       // placeholder for CARLA-spawned actors
+        bgVehicle[numBgVehicles]: NrUe { @display("p=628,578;i=misc/car2"); }   // non-TOD traffic
         carlaCommunicationManager: TodCarlanetManager { @display("p=50,340;is=s"); }
     connections:
         server.pppg++ <--> Eth10G <--> router.pppg++;
