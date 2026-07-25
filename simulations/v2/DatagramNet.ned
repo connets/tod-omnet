@@ -26,6 +26,12 @@ import tod_network.nodes.CarlaCar;
 // and servingNodeId/nrServingNodeId for cell association — this is what gives the
 // UE a working route to the server (see quic_standalone.ini experiments).
 //
+// FOUR-CELL deployment: the ego drives a ~1455 m loop (city_trip_world_4), so a
+// single cell leaves it up to 341 m away from the antenna for a good part of the
+// route. Four gNBs placed along the path cut the worst-case distance to ~127 m.
+// The cells are fully meshed over X2 because any of them can be the source or the
+// target of a handover; the handover itself is enabled in the ini.
+//
 network DatagramNet
 {
     parameters:
@@ -40,13 +46,32 @@ network DatagramNet
         router: Router { @display("p=363,115;i=device/smallrouter"); }
         upf: Upf { @display("p=527,116"); }
         iUpf: Upf { @display("p=725,118"); }
-        gnb: gNodeB { @display("p=726,277;is=vl"); }
-        VectorHero[1]: CarlaCar { @display("p=628,411"); }          // static TOD ego
-        VectorVehicle[0]: CarlaCar { @display("p=628,470"); }       // placeholder for CARLA-spawned actors
+        // Layout roughly mirrors the real placement set in the ini (NW -> SE).
+        gnb1: gNodeB { @display("p=560,255;is=vl"); }
+        gnb2: gNodeB { @display("p=670,290;is=vl"); }
+        gnb3: gNodeB { @display("p=780,325;is=vl"); }
+        gnb4: gNodeB { @display("p=890,360;is=vl"); }
+        VectorHero[1]: CarlaCar { @display("p=628,460"); }          // static TOD ego
+        VectorVehicle[0]: CarlaCar { @display("p=628,519"); }       // placeholder for CARLA-spawned actors
         carlaCommunicationManager: TodCarlanetManager { @display("p=50,340;is=s"); }
     connections:
         server.pppg++ <--> Eth10G <--> router.pppg++;
         router.pppg++ <--> Eth10G <--> upf.filterGate;
+
+        //# 5G core: one intermediate UPF fans out to the four cells
         upf.pppg++ <--> Eth10G <--> iUpf.pppg++;
-        iUpf.pppg++ <--> Eth10G <--> gnb.ppp;
+        iUpf.pppg++ <--> Eth10G <--> gnb1.ppp;
+        iUpf.pppg++ <--> Eth10G <--> gnb2.ppp;
+        iUpf.pppg++ <--> Eth10G <--> gnb3.ppp;
+        iUpf.pppg++ <--> Eth10G <--> gnb4.ppp;
+
+        //# X2 full mesh. The comment on each line is the x2ppp interface index the
+        //# link gets on each side (gates are numbered in connection order): the ini
+        //# needs it to write the x2App connectAddress of every peer.
+        gnb1.x2++ <--> Eth10G <--> gnb2.x2++;   // gnb1:x2ppp0 <-> gnb2:x2ppp0
+        gnb1.x2++ <--> Eth10G <--> gnb3.x2++;   // gnb1:x2ppp1 <-> gnb3:x2ppp0
+        gnb1.x2++ <--> Eth10G <--> gnb4.x2++;   // gnb1:x2ppp2 <-> gnb4:x2ppp0
+        gnb2.x2++ <--> Eth10G <--> gnb3.x2++;   // gnb2:x2ppp1 <-> gnb3:x2ppp1
+        gnb2.x2++ <--> Eth10G <--> gnb4.x2++;   // gnb2:x2ppp2 <-> gnb4:x2ppp1
+        gnb3.x2++ <--> Eth10G <--> gnb4.x2++;   // gnb3:x2ppp2 <-> gnb4:x2ppp2
 }
