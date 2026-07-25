@@ -37,9 +37,12 @@ network DatagramNet
 {
     parameters:
         int numUe = default(0);
-        // Non-TOD vehicles: plain NR UEs that only load the cells (no TOD app, no
-        // CARLA actor behind them). 0 keeps the baseline scenario untouched, so runs
-        // made before they existed stay comparable.
+        // Non-TOD road traffic: real CARLA vehicles (spawned and driven by tod-carla
+        // as 'passive' actors along their own route) that are ALSO 5G UEs, so they
+        // are visible in the CARLA world AND they load the cells.
+        int numTrafficVehicles = default(0);
+        // Synthetic radio-only load: plain NR UEs with no CARLA actor behind them.
+        // Useful to push the offered load past what the CARLA config files cover.
         int numBgVehicles = default(0);
     submodules:
         channelControl: LteChannelControl { @display("p=50,25;is=s"); }
@@ -58,7 +61,8 @@ network DatagramNet
         gnb4: gNodeB { @display("p=890,360;is=vl"); }
         VectorHero[1]: CarlaCar { @display("p=628,460"); }          // static TOD ego
         VectorVehicle[0]: CarlaCar { @display("p=628,519"); }       // placeholder for CARLA-spawned actors
-        bgVehicle[numBgVehicles]: NrUe { @display("p=628,578;i=misc/car2"); }   // non-TOD traffic
+        VectorTraffic[numTrafficVehicles]: CarlaCar { @display("p=628,578;i=misc/car2"); }  // CARLA road traffic, also UEs
+        bgVehicle[numBgVehicles]: NrUe { @display("p=628,637;i=misc/car2"); }   // synthetic radio load only
         carlaCommunicationManager: TodCarlanetManager { @display("p=50,340;is=s"); }
     connections:
         server.pppg++ <--> Eth10G <--> router.pppg++;
