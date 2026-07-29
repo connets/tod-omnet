@@ -90,6 +90,7 @@ void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_
 TODCarApp::~TODCarApp()
 {
     cancelAndDelete(updateStatusSelfMessage);
+    cancelAndDelete(openSocketSelfMessage);
 
     // sensor packets still waiting to be framed when the run ends
     for (auto packet : sensorBuffer)
@@ -224,12 +225,36 @@ void TODCarApp::finish()
  * The periodic status/sensor frame is started in socketEstablished(),
  * once the QUIC connection is ready
  */
+/*
+ * The socket is opened from an EVENT, not from here.
+ *
+ * This vehicle is usually created by the CARLA bridge, which calls callInitialize()
+ * on the fresh module as soon as CARLA reports the actor - and CARLA reports its
+ * first actors inside INIT_COMPLETED, while the rest of the network is still going
+ * through its own init stages. Resolving "server" at that point fails with
+ * "interface table has no interface registered (yet?)", because the server has not
+ * built its interfaces. Deferring to a zero-delay self message puts the resolution
+ * after network initialization, whatever stage this module happened to be born in.
+ */
 void TODCarApp::handleStartOperation(LifecycleOperation *operation)
+{
+    if (openSocketSelfMessage == nullptr)
+    {
+        openSocketSelfMessage = new cMessage("openSocket", OPEN_SOCKET_MSG_KIND);
+    }
+
+    if (!openSocketSelfMessage->isScheduled())
+    {
+        scheduleAt(simTime(), openSocketSelfMessage);
+    }
+}
+
+void TODCarApp::openSocket()
 {
     L3AddressResolver().tryResolve(par("destAddress"), destAddress);
     destPort = par("destPort");
 
-    std::cout << "TODCarApp::handleStartOperation "<< destAddress << ":" << destPort <<  endl;
+    std::cout << "TODCarApp::openSocket "<< destAddress << ":" << destPort <<  endl;
 
     socket.setOutputGate(gate("socketOut"));
     socket.bind(L3Address(), destPort);     // local bind (unspecified address)
@@ -258,7 +283,11 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg)
 {
     if (msg->isSelfMessage())
     {
-        if (msg == updateStatusSelfMessage)
+        if (msg->getKind() == OPEN_SOCKET_MSG_KIND)
+        {
+            openSocket();
+        }
+        else if (msg == updateStatusSelfMessage)
         {
             /*
              * This branch executes when it's time to fetch all the data to build the status

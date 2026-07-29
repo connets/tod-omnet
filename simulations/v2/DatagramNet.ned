@@ -18,10 +18,19 @@ import tod_network.nodes.CarlaCar;
 // Minimal TOD-over-5G co-simulation network for the QUIC DATAGRAM scenario.
 //
 // Built on simu5g's SingleCell_Standalone layout (which is proven to carry QUIC
-// from a UE to the server) PLUS the CARLA bridge. The hero vehicle is a STATIC
-// CarlaCar (VectorHero[0]) that registers with the manager (carla_id set in the
-// ini) and is therefore spawned in CARLA and driven by it. VectorVehicle[] is a
-// size-0 placeholder that the manager grows if CARLA reports extra actors.
+// from a UE to the server) PLUS the CARLA bridge.
+//
+// ALL vehicles come from CARLA. The manager grows VectorVehicle[] as CARLA reports
+// the actors declared in the tod-carla config yaml, in yaml order: the ego is the
+// first entry, so it is VectorVehicle[0], and the ini configures it there.
+//
+// There used to be a STATIC ego here (VectorHero[0]) that registered with the
+// manager through mobility.carla_id and was announced to CARLA in moving_actors.
+// That pattern is gone: in the current tod-carla
+// ActorManager.create_actors_from_omnet has an empty body, so actors announced by
+// OMNeT are silently ignored - CARLA never spawns them, never reports them back,
+// and at the first simulation step the manager treats them as destroyed and
+// deletes the module together with all its apps.
 //
 // IMPORTANT: the UE uses the MAIN Ipv4NetworkConfigurator (NOT HostAutoConfigurator)
 // and servingNodeId/nrServingNodeId for cell association — this is what gives the
@@ -59,8 +68,7 @@ network DatagramNet
         gnb2: gNodeB { @display("p=670,290;is=vl"); }
         gnb3: gNodeB { @display("p=780,325;is=vl"); }
         gnb4: gNodeB { @display("p=890,360;is=vl"); }
-        VectorHero[1]: CarlaCar { @display("p=628,460"); }          // static TOD ego
-        VectorVehicle[0]: CarlaCar { @display("p=628,519"); }       // placeholder for CARLA-spawned actors
+        VectorVehicle[0]: CarlaCar { @display("p=628,519"); }       // grown by the manager: [0] is the ego
         VectorTraffic[numTrafficVehicles]: CarlaCar { @display("p=628,578;i=misc/car2"); }  // CARLA road traffic, also UEs
         bgVehicle[numBgVehicles]: NrUe { @display("p=628,637;i=misc/car2"); }   // synthetic radio load only
         carlaCommunicationManager: TodCarlanetManager { @display("p=50,340;is=s"); }
