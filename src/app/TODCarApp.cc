@@ -468,8 +468,14 @@ void TODCarApp::processPacket(Packet *packet)
              * frame that produced it and its arrival here. This is the delay the
              * teleoperated vehicle actually suffers, so it is what drives the
              * camera quality.
+             *
+             * A no-instruction reply carries no real frame, so its collection time
+             * is the agent's empty window and would poison the average.
              */
-            updateQualityLevel(simTime() - message->getStatusDataCollectionTime());
+            if (strcmp(message->getInstructionId(), NO_INSTRUCTION_ID) != 0)
+            {
+                updateQualityLevel(simTime() - message->getStatusDataCollectionTime());
+            }
 
             carlaCommunicationManager->applyInstruction(message->getActorId(), message->getInstructionId());
         }

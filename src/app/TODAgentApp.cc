@@ -49,14 +49,9 @@ void ProcessStatusTimeFilter::receiveSignal(cResultFilter *prev, simtime_t_cref 
 
 TODAgentApp::~TODAgentApp()
 {
-    for (auto& openFrame : openFrames)
+    for (auto& slot : actorSlots)
     {
-        cancelAndDelete(openFrame.second.closeTimer);
-    }
-
-    for (auto& watch : actorWatch)
-    {
-        cancelAndDelete(watch.second.timer);
+        cancelAndDelete(slot.second.deadline);
     }
 
     for (QuicSocket *clientSocket : clientSockets)
@@ -71,7 +66,8 @@ void TODAgentApp::initialize(int stage)
     if (stage == INITSTAGE_LOCAL)
     {
         agentId = par("agentId").stdstringValue();
-        reuseDecay = par("reuseDecay").doubleValue();
+        samplingInterval = par("samplingInterval");
+        deadlineSlack = par("deadlineSlack");
         carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
     }
 }
@@ -113,28 +109,28 @@ void TODAgentApp::handleCrashOperation(LifecycleOperation *operation)
 }
 
 /*
- * Self-messages are only our per-frame close timers: when one fires the
- * corresponding frame has had enough time to accumulate its datagrams, so we
- * compute the loss and reply with the instruction.
+ * Self-messages are the two stages of the agent's own clock: the slot deadline,
+ * which closes the collection window, and the delivery that follows it after the
+ * modelled processing time.
  */
 void TODAgentApp::handleMessageWhenUp(cMessage* msg)
 {
     if (msg->isSelfMessage())
     {
-        if (msg->getKind() == CLOSE_FRAME_MSG_KIND)
-        {
-            auto timer = check_and_cast<ProcessedStatusMessage*>(msg);
-            closeFrame(timer->getStatusId());
-            delete timer;
-        }
-        else if (msg->getKind() == WATCHDOG_MSG_KIND)
+        if (msg->getKind() == SLOT_DEADLINE_MSG_KIND)
         {
             /*
-             * The watchdog message is re-armed (or stopped) inside watchdogTick,
-             * so it must NOT be deleted here.
+             * The deadline is periodic: closeSlot re-arms this very message, so it
+             * must NOT be deleted here.
              */
             auto timer = check_and_cast<ProcessedStatusMessage*>(msg);
-            watchdogTick(timer->getActorId());
+            closeSlot(timer->getActorId());
+        }
+        else if (msg->getKind() == SLOT_DELIVER_MSG_KIND)
+        {
+            auto timer = check_and_cast<ProcessedStatusMessage*>(msg);
+            deliverSlot(timer->getActorId());
+            delete timer;
         }
         else
         {
@@ -218,10 +214,12 @@ void TODAgentApp::socketDestroyed(QuicSocket *socket)
     }
 
     // Remove any actor->socket reply mapping pointing to it (avoid dangling use)
+    // and stop the slot clock of the actors that were reached through it.
     for (auto socketIterator = replySocketByActor.begin(); socketIterator != replySocketByActor.end(); )
     {
         if (socketIterator->second == socket)
         {
+            dropActor(socketIterator->first);
             socketIterator = replySocketByActor.erase(socketIterator);
         }
         else
@@ -234,245 +232,271 @@ void TODAgentApp::socketDestroyed(QuicSocket *socket)
 }
 
 
+
 /*
- * Opens a frame on the first fragment seen for a statusId and arms the close
- * timer. If the frame is already open we only adopt the expected-stream set
- * when we didn't have it yet. Closed frames are ignored so late datagrams
- * cannot reopen them.
+ * Starts the actor's clock on the first datagram ever seen from it, so loss is
+ * not counted before the QUIC connection is actually carrying anything. The
+ * first deadline lands one full period later: the slot that has just begun is
+ * the first one we judge.
  */
-void TODAgentApp::openFrame(const string& statusId, const string& actorId,
-                            const vector<uint64_t>& expectedStreams, simtime_t collectionTime,
-                            int qualityLevel, QuicSocket* replySocket)
+void TODAgentApp::startSlotClock(const string& actorId)
 {
-    replySocketByActor[actorId] = replySocket;
-
-    /*
-     * The frame is already opened
-     */
-    if (closedFrames.count(statusId))
+    ActorSlot& slot = actorSlots[actorId];
+    if (slot.deadline != nullptr)
     {
         return;
     }
 
-    /*
-     * If the frame is already opened then we check for its expected streams:
-     * if empty we assign it with the new one not empty
-     */
-    auto currentOpenFrame = openFrames.find(statusId);
-    if (currentOpenFrame != openFrames.end())
-    {
-        if (currentOpenFrame->second.expectedStreams.empty() && !expectedStreams.empty())
-        {
-            currentOpenFrame->second.expectedStreams = expectedStreams;
-        }
+    slot.deadline = new ProcessedStatusMessage("slotDeadline", SLOT_DEADLINE_MSG_KIND);
+    slot.deadline->setActorId(actorId.c_str());
+    slot.slotStart = simTime();
+    scheduleAfter(samplingInterval + deadlineSlack, slot.deadline);
 
-        return;
-    }
-
-    FrameAcc frame;
-    frame.actorId = actorId;
-    frame.expectedStreams = expectedStreams;
-    frame.collectionTime = collectionTime;
-    frame.firstArrivalTime = simTime();
-    frame.qualityLevel = qualityLevel;
-
-    auto timer = new ProcessedStatusMessage("closeFrame", CLOSE_FRAME_MSG_KIND);
-    timer->setStatusId(statusId.c_str());
-    timer->setActorId(actorId.c_str());
-    frame.closeTimer = timer;
-
-    openFrames[statusId] = frame;
-    scheduleAfter(par("processingStatusTime"), timer);
-
-    /*
-     * Register the activity and start the per-actor 100%-loss watchdog (once).
-     *
-     * This keeps track of the 100% loss even if no pieces of datagram arrives
-     */
-    ActorWatch& watch = actorWatch[actorId];
-    watch.lastFrameOpenTime = simTime();
-    if (watch.timer == nullptr)
-    {
-        watch.timer = new ProcessedStatusMessage("frameWatchdog", WATCHDOG_MSG_KIND);
-        watch.timer->setActorId(actorId.c_str());
-        scheduleAfter(par("frameInterval"), watch.timer);
-    }
-
-    EV_INFO << "TODAgentApp: opened frame " << statusId << " for actor " << actorId
-            << " (" << expectedStreams.size() << " expected streams)" << endl;
+    EV_INFO << "TODAgentApp: slot clock started for actor " << actorId
+            << ", period " << samplingInterval << " slack " << deadlineSlack << endl;
 }
 
+/*
+ * Marks a statusId as accounted for, so any fragment of it arriving after the
+ * deadline is recognised as late and dropped instead of reopening the frame.
+ * The memory is deliberately bounded.
+ */
+void TODAgentApp::settle(ActorSlot& slot, const string& statusId)
+{
+    if (!slot.settled.insert(statusId).second)
+    {
+        return;
+    }
+
+    slot.settledOrder.push_back(statusId);
+    while (slot.settledOrder.size() > SETTLED_HISTORY)
+    {
+        slot.settled.erase(slot.settledOrder.front());
+        slot.settledOrder.pop_front();
+    }
+}
+
+/*
+ * Accumulates one sensor fragment into the slot that is currently open for its
+ * actor. Nothing is decided here: the fragment either makes the deadline or it
+ * does not, and the deadline is what decides.
+ */
 void TODAgentApp::countSensorData(QuicSocket *socket, Packet *packet)
 {
     auto data = packet->peekAtFront<SensorData>();
+    string actorId = data->getActorId();
     string statusId = data->getStatusId();
 
-    /*
-     * Frame already closed: drop of any fragments with the given statusId
-     */
-    if (closedFrames.count(statusId))
+    replySocketByActor[actorId] = socket;
+    startSlotClock(actorId);
+
+    ActorSlot& slot = actorSlots[actorId];
+
+    if (slot.settled.count(statusId))
     {
-        EV_INFO << "TODAgentApp: late datagram for closed frame " << statusId << endl;
+        EV_INFO << "TODAgentApp: late datagram for settled status " << statusId << endl;
         return;
     }
 
-    /*
-     * If frame is already opened we build the expectedStreams array and then
-     * we call the method to open the current frame to wait for new
-     * fragments
-     */
-    if (!openFrames.count(statusId))
+    auto entry = slot.open.find(statusId);
+    if (entry == slot.open.end())
     {
-        vector<uint64_t> expected;
+        StatusAcc fresh;
+        fresh.actorId = actorId;
+        fresh.statusId = statusId;
+        fresh.collectionTime = data->getCollectionTime();
+        fresh.firstArrivalTime = simTime();
+        fresh.qualityLevel = data->getQualityLevel();
         for (size_t i = 0; i < data->getExpectedStreamsArraySize(); i++)
         {
-            expected.push_back(data->getExpectedStreams(i));
+            fresh.expectedStreams.push_back(data->getExpectedStreams(i));
         }
-
-        openFrame(statusId, data->getActorId(), expected, data->getCollectionTime(),
-                  data->getQualityLevel(), socket);
+        entry = slot.open.emplace(statusId, fresh).first;
+    }
+    else if (entry->second.expectedStreams.empty() && data->getExpectedStreamsArraySize() > 0)
+    {
+        // the fragment that carried the expected set may not be the first to land
+        for (size_t i = 0; i < data->getExpectedStreamsArraySize(); i++)
+        {
+            entry->second.expectedStreams.push_back(data->getExpectedStreams(i));
+        }
     }
 
-    auto& frame = openFrames[statusId];
-    auto& stats = frame.statsPerStream[data->getStreamId()];
+    auto& stats = entry->second.statsPerStream[data->getStreamId()];
     stats.arrived++;
     stats.total = (int) data->getTotalFragments();
 
-    EV_INFO << "TODAgentApp: frame " << statusId << " stream " << data->getStreamId()
+    EV_INFO << "TODAgentApp: status " << statusId << " stream " << data->getStreamId()
             << " fragment " << data->getFragmentNum() << "/" << data->getTotalFragments()
             << " (arrived " << stats.arrived << ")" << endl;
 }
 
+/*
+ * The deadline fired: the window is over and we judge what is in it.
+ *
+ * A slot can legitimately hold fragments of more than one status when jitter
+ * spreads a frame across the boundary. We pick the MOST COMPLETE one, freshest
+ * first on a tie: picking the newest unconditionally would report catastrophic
+ * loss whenever a frame has only just started arriving, which is a measurement
+ * artefact rather than a real degradation.
+ *
+ * Everything seen in this window is settled either way, so nothing is counted
+ * twice, and an empty window is left empty: 100% loss needs no special case.
+ */
+void TODAgentApp::closeSlot(const string& actorId)
+{
+    ActorSlot& slot = actorSlots[actorId];
+
+    StatusAcc chosen;
+    bool haveChoice = false;
+    double bestCompleteness = -1.0;
+
+    for (auto& entry : slot.open)
+    {
+        const StatusAcc& candidate = entry.second;
+
+        int arrived = 0;
+        int total = 0;
+        for (const auto& stream : candidate.statsPerStream)
+        {
+            arrived += min(stream.second.arrived, stream.second.total);
+            total += stream.second.total;
+        }
+        double completeness = (total > 0) ? (double) arrived / (double) total : 0.0;
+
+        if (!haveChoice
+            || completeness > bestCompleteness
+            || (completeness == bestCompleteness && candidate.collectionTime > chosen.collectionTime))
+        {
+            chosen = candidate;
+            bestCompleteness = completeness;
+            haveChoice = true;
+        }
+    }
+
+    for (const auto& entry : slot.open)
+    {
+        settle(slot, entry.first);
+    }
+    slot.open.clear();
+
+    if (!haveChoice)
+    {
+        // Nothing made the deadline. Synthesise the placeholder the delivery step
+        // needs, with the window as the reference instant.
+        chosen = StatusAcc();
+        chosen.actorId = actorId;
+        chosen.collectionTime = slot.slotStart;
+        chosen.firstArrivalTime = simTime();
+    }
+
+    slot.toDeliver.push_back(chosen);
+    slot.slotStart = simTime();
+
+    auto deliver = new ProcessedStatusMessage("slotDeliver", SLOT_DELIVER_MSG_KIND);
+    deliver->setActorId(actorId.c_str());
+    scheduleAfter(par("processingStatusTime"), deliver);
+
+    scheduleAfter(samplingInterval, slot.deadline);
+}
 
 /*
- * Closes a frame: computes the (reuse-aware) loss ratio, asks CARLA for the
- * instruction and sends it back via datagram. The statusId is then marked
- * closed so any straggler datagram is dropped.
+ * Processing time is over, so the instruction goes out.
+ *
+ * With a status: ask CARLA to compute on it and forward the id. Without one:
+ * still answer, with the no-instruction id and a loss of 1. That answer matters,
+ * because it is how a car with a dead uplink and a healthy downlink learns that
+ * the operator is seeing nothing at all. No CARLA round trip is made for it, so
+ * no stale status is ever looked up.
  */
-void TODAgentApp::closeFrame(const string& statusId)
+void TODAgentApp::deliverSlot(const string& actorId)
 {
-    auto openFrame = openFrames.find(statusId);
-    if (openFrame == openFrames.end())
+    auto slotEntry = actorSlots.find(actorId);
+    if (slotEntry == actorSlots.end() || slotEntry->second.toDeliver.empty())
     {
         return;
     }
 
-    FrameAcc& frame = openFrame->second;
+    ActorSlot& slot = slotEntry->second;
+    StatusAcc status = slot.toDeliver.front();
+    slot.toDeliver.pop_front();
 
-    double lossRatio = computeLossRatio(frame, frame.actorId);
-    EV_INFO << "TODAgentApp: closing frame " << statusId << " lossRatio " << lossRatio
-            << " qualityLevel " << frame.qualityLevel << endl;
+    if (status.statusId.empty())
+    {
+        EV_INFO << "TODAgentApp: empty slot for actor " << actorId << ", reporting full loss" << endl;
+        sendInstruction(status, NO_INSTRUCTION_ID, 1.0);
+        return;
+    }
 
-    string instructionId = carlaCommunicationManager->computeInstruction(frame.actorId, statusId, agentId,
-                                                                        lossRatio, frame.qualityLevel);
-    createAndSendInstructionMessage(frame, statusId, instructionId, lossRatio);
+    double lossRatio = computeLossRatio(status);
+    EV_INFO << "TODAgentApp: slot for actor " << actorId << " on status " << status.statusId
+            << " lossRatio " << lossRatio << " qualityLevel " << status.qualityLevel << endl;
 
-    ActorWatch& watch = actorWatch[frame.actorId];
-    watch.lastStatusId = statusId;
-    watch.lastExpectedStreams = frame.expectedStreams;
-    watch.lastQualityLevel = frame.qualityLevel;
-
-    closedFrames.insert(statusId);
-    openFrames.erase(openFrame);
+    string instructionId = carlaCommunicationManager->computeInstruction(actorId, status.statusId, agentId,
+                                                                        lossRatio, status.qualityLevel);
+    sendInstruction(status, instructionId, lossRatio);
 }
 
-double TODAgentApp::computeLossRatio(FrameAcc& frame, const string& actorId)
+/*
+ * Fraction of the expected sensor payload that did not make the deadline,
+ * averaged over the expected streams.
+ *
+ * There is no reuse of older frames here on purpose. That coefficient only
+ * existed because a reactive window had nothing to report when no frame opened;
+ * with a fixed cadence every slot is accounted for, and a stale-data model
+ * belongs on the CARLA side, where the actual old state still exists, rather
+ * than in a decay constant that has to be justified.
+ */
+double TODAgentApp::computeLossRatio(const StatusAcc& status) const
 {
-    /*
-     * Nothing was sampled from the sensors, so no loss to report
-     */
-    if (frame.expectedStreams.empty())
+    if (status.expectedStreams.empty())
     {
         return 0.0;
     }
 
-    auto& history = streamHistory[actorId];
-
     double sumLoss = 0.0;
-    int streamCounts = 0;
 
-    for (uint64_t streamId : frame.expectedStreams)
+    for (uint64_t streamId : status.expectedStreams)
     {
-        StreamHistory& streamState = history[streamId];
-        streamState.expectCount++;
+        double received = 0.0;
 
-        /*
-         * Fraction actually received this frame
-         */
-        double current = 0.0;
-        auto streamStats = frame.statsPerStream.find(streamId);
-        if (streamStats != frame.statsPerStream.end() && streamStats->second.total > 0)
+        auto stream = status.statsPerStream.find(streamId);
+        if (stream != status.statsPerStream.end() && stream->second.total > 0)
         {
-            int arrived = min(streamStats->second.arrived, streamStats->second.total);
-            current = (double) arrived / (double) streamStats->second.total;
+            int arrived = min(stream->second.arrived, stream->second.total);
+            received = (double) arrived / (double) stream->second.total;
         }
 
-        /*
-         * Fraction still reusable from the past, decayed by how many consecutive
-         * expected frames this sensor has missed since it last delivered
-         */
-        double reuse = 0.0;
-        if (streamState.hasHistory)
-        {
-            uint64_t age = streamState.expectCount - streamState.lastGoodExpectCount;
-            reuse = pow(reuseDecay, (double) age) * streamState.lastGoodRatio;
-        }
+        sumLoss += 1.0 - received;
 
-        /*
-         * Best choice, reuse or current
-         */
-        double effective = max(current, reuse);
-        if (effective > 1.0)
-        {
-            effective = 1.0;
-        }
-
-        double loss_s = 1.0 - effective;
-
-        sumLoss += loss_s;
-        streamCounts++;
-
-        if (current > 0.0 && current >= reuse)
-        {
-            streamState.lastGoodRatio = current;
-            streamState.lastGoodExpectCount = streamState.expectCount;
-            streamState.hasHistory = true;
-        }
-
-        EV_INFO << "TODAgentApp:   stream " << streamId << " cur " << current
-                << " reuse " << reuse << " -> loss " << loss_s << endl;
+        EV_INFO << "TODAgentApp:   stream " << streamId << " received " << received << endl;
     }
 
-    double loss = (streamCounts > 0) ? sumLoss / (double) streamCounts : 0.0;
-    EV_INFO << "TODAgentApp: frame lossRatio " << loss
-            << " (expected sensors " << frame.expectedStreams.size() << ")" << endl;
-    return loss;
+    return sumLoss / (double) status.expectedStreams.size();
 }
-
 
 /*
  * Builds the instruction and sends it back to the car as a QUIC DATAGRAM. The
  * message is a single fixed-size, byte-aligned chunk that fits in one datagram.
  * If the actor's connection is gone the instruction is simply dropped.
  */
-void TODAgentApp::createAndSendInstructionMessage(FrameAcc& frame, const string& statusId,
-                                                  const string& instructionId, double lossRatio)
+void TODAgentApp::sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio)
 {
-    auto reply = replySocketByActor.find(frame.actorId);
+    auto reply = replySocketByActor.find(status.actorId);
     if (reply == replySocketByActor.end() || reply->second == nullptr)
     {
-        EV_WARN << "TODAgentApp: no reply socket for actor " << frame.actorId << ", dropping instruction" << endl;
+        EV_WARN << "TODAgentApp: no reply socket for actor " << status.actorId << ", dropping instruction" << endl;
         return;
     }
 
     auto packet = new Packet("Instruction");
     auto data = makeShared<TodInstructionMessage>();
 
-    data->setActorId(frame.actorId.c_str());
+    data->setActorId(status.actorId.c_str());
     data->setInstructionId(instructionId.c_str());
-    data->setStatusDataCollectionTime(frame.collectionTime);
-    data->setStatusCreationTime(frame.collectionTime);
-    data->setStatusProcessingTime(frame.firstArrivalTime);
+    data->setStatusDataCollectionTime(status.collectionTime);
+    data->setStatusCreationTime(status.collectionTime);
+    data->setStatusProcessingTime(status.firstArrivalTime);
     data->setInstructionCreationTime(simTime());
     data->setLossRatio(lossRatio);
 
@@ -487,50 +511,20 @@ void TODAgentApp::createAndSendInstructionMessage(FrameAcc& frame, const string&
     numSent++;
 }
 
-void TODAgentApp::watchdogTick(const string& actorId)
+/*
+ * The actor's connection is gone: stop its clock and forget its state, otherwise
+ * the deadline would keep firing and reporting full loss for a car that is no
+ * longer there.
+ */
+void TODAgentApp::dropActor(const string& actorId)
 {
-    auto watcher = actorWatch.find(actorId);
-    if (watcher == actorWatch.end())
+    auto slotEntry = actorSlots.find(actorId);
+    if (slotEntry == actorSlots.end())
     {
         return;
     }
 
-    ActorWatch& watch = watcher->second;
-
-    /*
-     * Stop the watchdog if the actor's connection is gone
-     */
-    if (replySocketByActor.find(actorId) == replySocketByActor.end())
-    {
-        cancelAndDelete(watch.timer);
-        actorWatch.erase(watcher);
-        return;
-    }
-
-    simtime_t frameInterval = par("frameInterval");
-
-    while (!watch.lastStatusId.empty() &&
-           (simTime() - watch.lastFrameOpenTime) >= frameInterval * 2)
-    {
-        watch.lastFrameOpenTime += frameInterval;
-
-        FrameAcc lost;
-        lost.actorId = actorId;
-        lost.expectedStreams = watch.lastExpectedStreams;
-        lost.collectionTime = watch.lastFrameOpenTime;
-        lost.firstArrivalTime = simTime();
-        // nothing arrived, so the best we can say is the quality of the last frame
-        lost.qualityLevel = watch.lastQualityLevel;
-
-        double lossRatio = computeLossRatio(lost, actorId);
-
-        EV_INFO << "TODAgentApp: 100% loss slot for actor " << actorId
-                << " lossRatio " << lossRatio << " (reusing status " << watch.lastStatusId << ")" << endl;
-
-        string instructionId = carlaCommunicationManager->computeInstruction(actorId, watch.lastStatusId, agentId,
-                                                                            lossRatio, lost.qualityLevel);
-        createAndSendInstructionMessage(lost, watch.lastStatusId, instructionId, lossRatio);
-    }
-
-    scheduleAfter(frameInterval, watch.timer);
+    cancelAndDelete(slotEntry->second.deadline);
+    actorSlots.erase(slotEntry);
+    EV_INFO << "TODAgentApp: slot clock stopped for actor " << actorId << endl;
 }

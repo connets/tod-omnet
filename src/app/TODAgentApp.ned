@@ -19,16 +19,22 @@ simple TODAgentApp like IApp
 
         volatile double processingStatusTime @unit(s) = default(15ms); //time to decode one video frame
 
-        // Reuse of past sensor data when computing the loss ratio. For each
-        // expected sensor the reusable fraction is reuseDecay^(missed frames) *
-        // (last well-received fraction). 0 disables reuse; higher values keep
-        // stale data usable longer.
-        double reuseDecay = default(0.5);
+        // --- Clock proprio dell'agente ------------------------------------------
+        // L'agente non apre una finestra quando arrivano i dati: dichiara una
+        // cadenza, la avvia al primo datagramma ricevuto da un attore, e da lì
+        // decide a istanti fissi su quello che ha rispettato la deadline. Uno slot
+        // in cui non arriva nulla e' perdita totale senza casi speciali, per questo
+        // non c'e' piu' nessun watchdog.
+        //
+        // Va tenuta pari alla cadenza di campionamento dell'auto
+        // (TODCarApp.statusUpdateInterval), altrimenti i due clock derivano e uno
+        // slot vede zero o due frame.
+        double samplingInterval @unit(s) = default(0.016667s);
 
-        // Expected car sampling cadence, used by the 100%-loss watchdog. Mirror
-        // of TODCarApp.statusUpdateInterval (60 fps default). A slot is declared
-        // fully lost when no datagram arrives for more than 2*frameInterval.
-        double frameInterval @unit(s) = default(0.016667s);
+        // Slack di playout: la deadline cade a samplingInterval + deadlineSlack,
+        // cosi' un frame a cavallo del confine viene comunque contato. Si paga
+        // latenza per comprare loss, e' il compromesso classico del jitter buffer.
+        double deadlineSlack @unit(s) = default(0.008s);
 
         @signal[packetSent](type=inet::Packet);
         @signal[packetReceived](type=inet::Packet);

@@ -59,6 +59,9 @@ private:
     double statusUpdateInterval;
     const char *actorId;
     const int CREATION_STATUS_DATA_MSG_KIND = 2;
+    // Instruction id the agent sends when it had nothing to decide on. Must match
+    // TODAgentApp::NO_INSTRUCTION_ID and the check on the CARLA side.
+    static constexpr const char* NO_INSTRUCTION_ID = "-1";
     bool zeroDelay;
     // uint64_t frameCounter = 0; // It resets in each flush of the status update
 

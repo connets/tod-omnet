@@ -8,6 +8,7 @@
 #ifndef _TODAGENTAPP_H
 #define _TODAGENTAPP_H
 #include <omnetpp.h>
+#include <deque>
 #include <vector>
 #include <map>
 #include <set>
@@ -34,51 +35,63 @@ Register_ResultFilter("processStatusTime", ProcessStatusTimeFilter);
 class TODAgentApp : public ApplicationBase, public QuicSocket::ICallback
 {
 private:
-    const int CLOSE_FRAME_MSG_KIND = 1;             // per-frame close timer
-    const int WATCHDOG_MSG_KIND = 2;                // per-actor 100%-loss detector
+    const int SLOT_DEADLINE_MSG_KIND = 1;   // per-actor fixed-cadence deadline
+    const int SLOT_DELIVER_MSG_KIND = 2;    // deadline + processing time
+    // Instruction id meaning "no instruction": the CARLA side checks for it and
+    // applies nothing, so it does not rearm the on-board dead-man's switch either.
+    const char* NO_INSTRUCTION_ID = "-1";
+    // Cap on how many settled statusIds we remember per actor to recognise late
+    // datagrams. Bounded on purpose: an unbounded set grows for the whole run.
+    const size_t SETTLED_HISTORY = 256;
+
     TodCarlanetManager* carlaCommunicationManager;
     string agentId;
-    double reuseDecay;
 
-    struct SensorAcc
+    /*
+     * The agent runs on its OWN clock.
+     *
+     * It does not open a window when data happens to arrive; it declares a
+     * cadence, starts it at the first datagram it ever receives from an actor,
+     * and from then on decides at fixed instants using whatever made the
+     * deadline. Loss is then simply what did not arrive in time, and a slot in
+     * which nothing arrived is 100% loss without any special case: there is no
+     * watchdog, because there is nothing to detect.
+     *
+     * The deadline sits a little after the period (a playout slack), so a frame
+     * straddling the boundary is still counted. That trades latency for loss,
+     * which is the usual jitter-buffer compromise.
+     */
+    simtime_t samplingInterval;
+    simtime_t deadlineSlack;
+
+    struct StreamAcc
     {
         int arrived = 0;
         int total = 0;
     };
 
-    struct FrameAcc
+    // One car-side frame (one statusId) as it accumulates inside the current slot.
+    struct StatusAcc
     {
         string actorId;
+        string statusId;
         vector<uint64_t> expectedStreams;
-        map<uint64_t, SensorAcc> statsPerStream;
+        map<uint64_t, StreamAcc> statsPerStream;
         simtime_t collectionTime;
         simtime_t firstArrivalTime;
-        cMessage* closeTimer = nullptr;
         int qualityLevel = 0;   // camera quality this frame was produced at
     };
-    map<string, FrameAcc> openFrames;
-    set<string> closedFrames;
 
-
-    struct StreamHistory
+    struct ActorSlot
     {
-        double lastGoodRatio = 0.0;                    // fraction received the last time it delivered
-        uint64_t expectCount = 0;                      // how many times this stream has been expected
-        uint64_t lastGoodExpectCount = 0;              // expectCount when it last delivered
-        bool hasHistory = false;
+        ProcessedStatusMessage* deadline = nullptr;  // periodic, never deleted on fire
+        map<string, StatusAcc> open;                 // statusId -> accumulation, current slot
+        set<string> settled;                         // statusIds already accounted for
+        deque<string> settledOrder;                  // eviction order for settled
+        deque<StatusAcc> toDeliver;                  // snapshots waiting out processingStatusTime
+        simtime_t slotStart = 0;                     // start of the window now accumulating
     };
-    map<string, map<uint64_t, StreamHistory>> streamHistory;   // actorId -> streamId -> history
-
-
-    struct ActorWatch
-    {
-        ProcessedStatusMessage* timer = nullptr;
-        simtime_t lastFrameOpenTime = 0;        // when the last frame opened (any datagram)
-        string lastStatusId;                    // last statusId that produced an instruction
-        vector<uint64_t> lastExpectedStreams;   // expected set of the last received frame
-        int lastQualityLevel = 0;               // quality of the last frame that did arrive
-    };
-    map<string, ActorWatch> actorWatch;         // actorId -> watchdog state
+    map<string, ActorSlot> actorSlots;              // actorId -> slot state
 
 protected:
     QuicSocket socket;                                 // listening socket
@@ -90,15 +103,14 @@ protected:
     int numReceived = 0;
 
 private:
-    void openFrame(const string& statusId, const string& actorId,
-                   const vector<uint64_t>& expectedStreams, simtime_t collectionTime,
-                   int qualityLevel, QuicSocket* replySocket);
     void countSensorData(QuicSocket* socket, Packet* packet);
-    void closeFrame(const string& statusId);
-    double computeLossRatio(FrameAcc& frame, const string& actorId);
-    void createAndSendInstructionMessage(FrameAcc& frame, const string& statusId,
-                                         const string& instructionId, double lossRatio);
-    void watchdogTick(const string& actorId);
+    void startSlotClock(const string& actorId);
+    void closeSlot(const string& actorId);
+    void deliverSlot(const string& actorId);
+    void settle(ActorSlot& slot, const string& statusId);
+    double computeLossRatio(const StatusAcc& status) const;
+    void sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio);
+    void dropActor(const string& actorId);
 
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }
