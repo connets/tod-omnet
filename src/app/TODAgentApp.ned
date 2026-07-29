@@ -31,10 +31,11 @@ simple TODAgentApp like IApp
         // slot vede zero o due frame.
         double samplingInterval @unit(s) = default(0.016667s);
 
-        // Slack di playout: la deadline cade a samplingInterval + deadlineSlack,
-        // cosi' un frame a cavallo del confine viene comunque contato. Si paga
-        // latenza per comprare loss, e' il compromesso classico del jitter buffer.
-        double deadlineSlack @unit(s) = default(0.008s);
+        // Budget di playout, ancorato al FRAME e non alla finestra: uno status resta
+        // utilizzabile fino a collectionTime + frameBudget. Un frame spalmato su due
+        // finestre continua ad accumulare invece di essere spezzato in due con meta'
+        // dei frammenti buttati. Scaduto il budget e' troppo vecchio per agirci.
+        double frameBudget @unit(s) = default(0.05s);
 
         // --- Qualita' camera richiesta all'auto ---------------------------------
         // Decide l'agente, non l'auto: l'auto puo' solo misurare il round trip delle

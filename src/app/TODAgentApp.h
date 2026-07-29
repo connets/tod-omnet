@@ -57,12 +57,15 @@ private:
      * which nothing arrived is 100% loss without any special case: there is no
      * watchdog, because there is nothing to detect.
      *
-     * The deadline sits a little after the period (a playout slack), so a frame
-     * straddling the boundary is still counted. That trades latency for loss,
-     * which is the usual jitter-buffer compromise.
+     * How long a fragment stays useful is a SEPARATE axis from when we decide. A
+     * frame is viable until collectionTime + frameBudget, not until the end of the
+     * window it happened to land in: a frame spread across two windows keeps
+     * accumulating instead of being torn in half and half thrown away. That is a
+     * playout budget, the same idea as a jitter buffer, and it is anchored to the
+     * frame rather than to our clock.
      */
     simtime_t samplingInterval;
-    simtime_t deadlineSlack;
+    simtime_t frameBudget;
 
     struct StreamAcc
     {
@@ -134,6 +137,7 @@ private:
     void deliverSlot(const string& actorId);
     void settle(ActorSlot& slot, const string& statusId);
     double computeLossRatio(const StatusAcc& status) const;
+    double completeness(const StatusAcc& status) const;
     void sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio,
                          int requestedQualityLevel);
     void dropActor(const string& actorId);

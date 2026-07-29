@@ -70,7 +70,7 @@ void TODAgentApp::initialize(int stage)
     {
         agentId = par("agentId").stdstringValue();
         samplingInterval = par("samplingInterval");
-        deadlineSlack = par("deadlineSlack");
+        frameBudget = par("frameBudget");
         lossEwmaAlpha = par("lossEwmaAlpha").doubleValue();
         qualityHysteresis = par("qualityHysteresis").doubleValue();
         parseQualityLossThresholds(par("qualityLossThresholds").stringValue());
@@ -256,10 +256,10 @@ void TODAgentApp::startSlotClock(const string& actorId)
     slot.deadline = new ProcessedStatusMessage("slotDeadline", SLOT_DEADLINE_MSG_KIND);
     slot.deadline->setActorId(actorId.c_str());
     slot.slotStart = simTime();
-    scheduleAfter(samplingInterval + deadlineSlack, slot.deadline);
+    scheduleAfter(samplingInterval, slot.deadline);
 
     EV_INFO << "TODAgentApp: slot clock started for actor " << actorId
-            << ", period " << samplingInterval << " slack " << deadlineSlack << endl;
+            << ", period " << samplingInterval << " frame budget " << frameBudget << endl;
 }
 
 /*
@@ -338,53 +338,107 @@ void TODAgentApp::countSensorData(QuicSocket *socket, Packet *packet)
 }
 
 /*
- * The deadline fired: the window is over and we judge what is in it.
+ * The deadline fired: time to decide.
  *
- * A slot can legitimately hold fragments of more than one status when jitter
- * spreads a frame across the boundary. We pick the MOST COMPLETE one, freshest
- * first on a tie: picking the newest unconditionally would report catastrophic
- * loss whenever a frame has only just started arriving, which is a measurement
- * artefact rather than a real degradation.
+ * Three-way eviction, which is the whole point of anchoring the budget to the
+ * frame instead of to our window:
  *
- * Everything seen in this window is settled either way, so nothing is counted
- * twice, and an empty window is left empty: 100% loss needs no special case.
+ *   - past its budget  -> dropped and settled, it is too stale to act on
+ *   - chosen           -> settled, an instruction is computed on it, later
+ *                         fragments of it are genuinely useless
+ *   - neither          -> KEPT, it is a frame still arriving. Tearing it up at
+ *                         the window boundary used to throw away fragments that
+ *                         had in fact arrived, and counted a frame that came in
+ *                         whole as half lost.
+ *
+ * Selection prefers FRESHNESS among the frames that are complete, and falls back
+ * to the most complete one when none is. Sorting by completeness alone would bias
+ * towards old frames once we started keeping them, because a kept frame goes on
+ * accumulating while a new one starts from nothing.
+ *
+ * Whatever is older than the chosen frame is dropped too: it has been superseded,
+ * and that keeps the decisions monotonic in time - the operator's view must never
+ * go backwards.
  */
 void TODAgentApp::closeSlot(const string& actorId)
 {
     ActorSlot& slot = actorSlots[actorId];
 
+    // too stale to be worth anything
+    for (auto entry = slot.open.begin(); entry != slot.open.end(); )
+    {
+        if (simTime() >= entry->second.collectionTime + frameBudget)
+        {
+            EV_INFO << "TODAgentApp: status " << entry->first << " past its frame budget, dropped" << endl;
+            settle(slot, entry->first);
+            entry = slot.open.erase(entry);
+        }
+        else
+        {
+            ++entry;
+        }
+    }
+
     StatusAcc chosen;
     bool haveChoice = false;
+    bool chosenComplete = false;
     double bestCompleteness = -1.0;
 
     for (auto& entry : slot.open)
     {
         const StatusAcc& candidate = entry.second;
+        double candidateCompleteness = completeness(candidate);
+        bool candidateComplete = candidateCompleteness >= 1.0;
 
-        int arrived = 0;
-        int total = 0;
-        for (const auto& stream : candidate.statsPerStream)
+        bool better;
+        if (!haveChoice)
         {
-            arrived += min(stream.second.arrived, stream.second.total);
-            total += stream.second.total;
+            better = true;
         }
-        double completeness = (total > 0) ? (double) arrived / (double) total : 0.0;
+        else if (candidateComplete != chosenComplete)
+        {
+            // a complete frame always beats an incomplete one
+            better = candidateComplete;
+        }
+        else if (candidateComplete)
+        {
+            // both complete: the fresher view of the road wins
+            better = candidate.collectionTime > chosen.collectionTime;
+        }
+        else
+        {
+            // neither complete: take what shows the most, freshest on a tie
+            better = candidateCompleteness > bestCompleteness
+                     || (candidateCompleteness == bestCompleteness
+                         && candidate.collectionTime > chosen.collectionTime);
+        }
 
-        if (!haveChoice
-            || completeness > bestCompleteness
-            || (completeness == bestCompleteness && candidate.collectionTime > chosen.collectionTime))
+        if (better)
         {
             chosen = candidate;
-            bestCompleteness = completeness;
+            bestCompleteness = candidateCompleteness;
+            chosenComplete = candidateComplete;
             haveChoice = true;
         }
     }
 
-    for (const auto& entry : slot.open)
+    if (haveChoice)
     {
-        settle(slot, entry.first);
+        // the chosen frame and everything it supersedes leave the accumulator;
+        // strictly newer frames stay and keep filling up
+        for (auto entry = slot.open.begin(); entry != slot.open.end(); )
+        {
+            if (entry->second.collectionTime <= chosen.collectionTime)
+            {
+                settle(slot, entry->first);
+                entry = slot.open.erase(entry);
+            }
+            else
+            {
+                ++entry;
+            }
+        }
     }
-    slot.open.clear();
 
     if (!haveChoice)
     {
@@ -404,6 +458,22 @@ void TODAgentApp::closeSlot(const string& actorId)
     scheduleAfter(par("processingStatusTime"), deliver);
 
     scheduleAfter(samplingInterval, slot.deadline);
+}
+
+/*
+ * Fraction of the expected sensor payload that is in hand. Derived from the loss so
+ * the two can never disagree, and so it stays weighted over the EXPECTED streams: a
+ * status where one camera out of four arrived in full is 25% complete, not 100%,
+ * which is what averaging only over the streams that turned up would have said.
+ */
+double TODAgentApp::completeness(const StatusAcc& status) const
+{
+    if (status.expectedStreams.empty())
+    {
+        return 0.0;
+    }
+
+    return 1.0 - computeLossRatio(status);
 }
 
 /*
