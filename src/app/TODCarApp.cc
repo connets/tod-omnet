@@ -90,6 +90,13 @@ void InstructionDelayResultFilter::receiveSignal(cResultFilter *prev, simtime_t_
 TODCarApp::~TODCarApp()
 {
     cancelAndDelete(updateStatusSelfMessage);
+
+    // sensor packets still waiting to be framed when the run ends
+    for (auto packet : sensorBuffer)
+    {
+        delete packet;
+    }
+    sensorBuffer.clear();
 }
 
 void TODCarApp::initialize(int stage)
@@ -258,6 +265,25 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg)
              * update message. It collects sensor data via sending a message to the manager
              * and schedules a new self message to do again the status update
              */
+
+            /*
+             * One frame at a time. encodingImageTime + collectionDataTime can exceed
+             * statusUpdateInterval (it does at 60 fps with the default 10ms + 15ms),
+             * and without this guard two polls' worth of samples ended up drained
+             * into a single status: the same streamId appeared twice, arrived counts
+             * added up across both samples while total was overwritten by the last,
+             * and the agent's min(arrived, total) clamp then reported the frame as
+             * fully received. Loss was silently under-measured, which is exactly the
+             * metric the quality adaptation now keys off.
+             */
+            if (statusCreationPending)
+            {
+                EV_WARN << "TODCarApp: previous frame still in the encoder, skipping this poll"
+                        << " (statusUpdateInterval shorter than encoding+collection time)" << endl;
+                scheduleAfter(statusUpdateInterval, msg);
+                return;
+            }
+
             retrieveStatusData();
 
             /*
@@ -275,6 +301,7 @@ void TODCarApp::handleMessageWhenUp(cMessage* msg)
         }
         else if (msg->getKind() == CREATION_STATUS_DATA_MSG_KIND)
         {
+            statusCreationPending = false;
             sendUpdateStatusPacket(simTime());
 
             /*
@@ -307,6 +334,7 @@ void TODCarApp::retrieveStatusData()
     double creationStatusTime = encTime + collectTime;
 
     cMessage* msg = new cMessage("creationStatusTime", CREATION_STATUS_DATA_MSG_KIND);
+    statusCreationPending = true;
     scheduleAfter(creationStatusTime, msg);
 }
 
@@ -334,13 +362,20 @@ void TODCarApp::sendUpdateStatusPacket(simtime_t dataRetrievalTime)
         return;
     }
 
-    string statusId = carlaCommunicationManager->getActorStatus(carlaId);
-
+    /*
+     * The buffer is checked BEFORE asking CARLA for a status: getActorStatus makes
+     * CARLA build a state and park it in its ObjectStorage under a fresh id, and
+     * that id is only ever removed when an instruction is computed on it. Asking
+     * first and then bailing out on an empty buffer leaked one stored state per
+     * skipped frame, for the whole run.
+     */
     if (sensorBuffer.empty())
     {
-        EV_INFO << "TODCarApp: empty sensor buffer for status " << statusId << ", skipping frame" << endl;
+        EV_INFO << "TODCarApp: empty sensor buffer, skipping frame" << endl;
         return;
     }
+
+    string statusId = carlaCommunicationManager->getActorStatus(carlaId);
 
     streamsThisFrame.clear();
     for (auto packet : sensorBuffer)

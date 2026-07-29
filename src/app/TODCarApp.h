@@ -63,6 +63,12 @@ private:
     // TODAgentApp::NO_INSTRUCTION_ID and the check on the CARLA side.
     static constexpr const char* NO_INSTRUCTION_ID = "-1";
     bool zeroDelay;
+    /*
+     * True while a frame is being encoded/collected. The pipeline is one deep: a
+     * poll that fires while the previous frame is still in the encoder is dropped
+     * instead of piling a second sample set into the same buffer.
+     */
+    bool statusCreationPending = false;
     // uint64_t frameCounter = 0; // It resets in each flush of the status update
 
     vector<Packet*> sensorBuffer;
