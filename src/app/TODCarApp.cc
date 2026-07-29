@@ -111,58 +111,20 @@ void TODCarApp::initialize(int stage)
         EV_INFO << "****** => " << statusUpdateInterval << endl;
 
         rttEwmaAlpha = par("rttEwmaAlpha").doubleValue();
-        qualityHysteresis = par("qualityHysteresis").doubleValue();
-        parseQualityRttThresholds(par("qualityRttThresholds").stringValue());
+        qualitySilenceTimeout = par("qualitySilenceTimeout");
+        qualityMaxLevel = par("qualityMaxLevel").intValue();
     }
 }
 
 /*
- * Parses "60ms 120ms 220ms" into the RTT values at which the camera steps DOWN
- * one quality level. With N thresholds there are N+1 levels, which must match the
- * number of rungs configured in CameraSensorApp.qualityResolutions.
- * An empty string disables the adaptation altogether.
+ * Keeps the EWMA of how stale the arriving instructions are, purely as a
+ * statistic: this is the delay the teleoperated vehicle actually suffers. It no
+ * longer selects the camera quality, because from here we only ever see the
+ * instructions that made it back, which says nothing about what the uplink
+ * dropped on the way up.
  */
-void TODCarApp::parseQualityRttThresholds(const char *spec)
+void TODCarApp::trackInstructionRtt(simtime_t instructionRtt)
 {
-    qualityRttThresholds.clear();
-    if (spec == nullptr || *spec == '\0')
-    {
-        EV_INFO << "TODCarApp: adaptive camera quality disabled" << endl;
-        return;
-    }
-
-    cStringTokenizer tokenizer(spec);
-    while (tokenizer.hasMoreTokens())
-    {
-        const char *token = tokenizer.nextToken();
-        qualityRttThresholds.push_back(SimTime(cValue::parseQuantity(token, "s")));
-    }
-
-    for (size_t i = 1; i < qualityRttThresholds.size(); i++)
-    {
-        if (qualityRttThresholds[i] <= qualityRttThresholds[i - 1])
-        {
-            throw cRuntimeError("TODCarApp: qualityRttThresholds must be strictly increasing, got '%s'", spec);
-        }
-    }
-}
-
-/*
- * Feeds one instruction RTT sample into the EWMA and moves the quality level.
- *
- * Going DOWN is immediate: as soon as the smoothed RTT passes the threshold of
- * the current level, the camera gives up pixels. Going UP requires the RTT to
- * fall below that same threshold shrunk by the hysteresis band, so a link that
- * sits exactly on a boundary settles instead of oscillating between two
- * resolutions every frame.
- */
-void TODCarApp::updateQualityLevel(simtime_t instructionRtt)
-{
-    if (qualityRttThresholds.empty())
-    {
-        return;
-    }
-
     /*
      * The first sample seeds the average: starting from zero would make the car
      * spend its first frames pretending the link is perfect.
@@ -178,61 +140,61 @@ void TODCarApp::updateQualityLevel(simtime_t instructionRtt)
                         + (1.0 - rttEwmaAlpha) * instructionRttEwma.dbl();
         instructionRttEwma = SimTime(smoothed);
     }
-    lastInstructionArrival = simTime();
     emit(instructionRttEwmaSignal, instructionRttEwma.dbl());
+}
 
-    int level = qualityLevel;
+/*
+ * Applies the level the agent asked for. The car does not second-guess it: the
+ * agent measured the loss, this side only turns the number into fewer bytes.
+ */
+void TODCarApp::applyRequestedQuality(int requestedLevel)
+{
+    lastInstructionArrival = simTime();
 
-    while (level < (int) qualityRttThresholds.size() && instructionRttEwma > qualityRttThresholds[level])
+    if (requestedLevel < 0)
     {
-        level++;
+        requestedLevel = 0;
     }
 
-    while (level > 0 && instructionRttEwma < qualityRttThresholds[level - 1] * (1.0 - qualityHysteresis))
+    if (requestedLevel != qualityLevel)
     {
-        level--;
-    }
-
-    if (level != qualityLevel)
-    {
-        EV_INFO << "TODCarApp: instruction RTT (EWMA) " << instructionRttEwma
-                << " -> camera quality level " << qualityLevel << " => " << level << endl;
-        qualityLevel = level;
+        EV_INFO << "TODCarApp: agent requests camera quality level "
+                << qualityLevel << " => " << requestedLevel << endl;
+        qualityLevel = requestedLevel;
     }
 
     emit(qualityLevelSignal, (long) qualityLevel);
 }
 
 /*
- * Silence is just an unbounded RTT.
+ * Fallback for a dead downlink.
  *
- * updateQualityLevel() only runs when an instruction actually arrives, so if the
- * control channel dies outright the level would freeze at whatever it was and the
- * camera would keep pushing the same bytes into a link that is delivering nothing.
- * Here the car walks the same ladder using the time since the last instruction, so
- * a total blackout degrades to the bottom rung instead of standing still. This is
- * the same mechanism as the dead-man's switch on the CARLA side, not a second one:
+ * The agent decides the level, but its request rides on the instruction: if the
+ * downlink is gone, no request can arrive and the level would freeze while the
+ * camera keeps pushing the same bytes into a link that delivers nothing. Here the
+ * car gives up one rung per silent timeout on its own.
+ *
+ * Only ever degrades: recovering needs a real request to come back. This is the
+ * same idea as the dead-man's switch on the CARLA side, not a second mechanism -
  * that one stops the vehicle, this one shrinks the frame.
- *
- * Only ever degrades. Recovering requires a real instruction to come back.
  */
 void TODCarApp::degradeOnSilence()
 {
-    if (qualityRttThresholds.empty() || !hasRttSample)
+    if (qualitySilenceTimeout <= SIMTIME_ZERO || !hasRttSample)
     {
         return;
     }
 
     simtime_t silence = simTime() - lastInstructionArrival;
-    if (silence <= instructionRttEwma)
+    if (silence < qualitySilenceTimeout)
     {
         return;
     }
 
-    int level = qualityLevel;
-    while (level < (int) qualityRttThresholds.size() && silence > qualityRttThresholds[level])
+    int level = (int) (silence / qualitySilenceTimeout);
+    if (level > qualityMaxLevel)
     {
-        level++;
+        level = qualityMaxLevel;
     }
 
     if (level > qualityLevel)
@@ -465,17 +427,22 @@ void TODCarApp::processPacket(Packet *packet)
 
             /*
              * How stale this instruction is: the time between the sampling of the
-             * frame that produced it and its arrival here. This is the delay the
-             * teleoperated vehicle actually suffers, so it is what drives the
-             * camera quality.
+             * frame that produced it and its arrival here. Statistic only.
              *
              * A no-instruction reply carries no real frame, so its collection time
              * is the agent's empty window and would poison the average.
              */
             if (strcmp(message->getInstructionId(), NO_INSTRUCTION_ID) != 0)
             {
-                updateQualityLevel(simTime() - message->getStatusDataCollectionTime());
+                trackInstructionRtt(simTime() - message->getStatusDataCollectionTime());
             }
+
+            /*
+             * The quality request rides on every reply, including the empty-slot
+             * one: that is exactly the case where the car most needs to be told to
+             * shrink the frame, since from its own side the link looks quiet.
+             */
+            applyRequestedQuality(message->getRequestedQualityLevel());
 
             carlaCommunicationManager->applyInstruction(message->getActorId(), message->getInstructionId());
         }

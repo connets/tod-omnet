@@ -36,8 +36,27 @@ simple TODAgentApp like IApp
         // latenza per comprare loss, e' il compromesso classico del jitter buffer.
         double deadlineSlack @unit(s) = default(0.008s);
 
+        // --- Qualita' camera richiesta all'auto ---------------------------------
+        // Decide l'agente, non l'auto: l'auto puo' solo misurare il round trip delle
+        // istruzioni che sono tornate, che non dice niente su cosa e' stato scartato
+        // in salita. Un uplink molto lossy con downlink sano, visto dall'auto, sembra
+        // perfetto. La richiesta torna sull'istruzione (requestedQualityLevel).
+        //
+        // Soglie di DISCESA sulla frazione di perdita, in ordine crescente: con N
+        // soglie i livelli sono N+1 e devono corrispondere ai gradini di
+        // CameraSensorApp.qualityResolutions. Default vuoto = disattivato.
+        string qualityLossThresholds = default("");
+        // Peso del campione nuovo nella EWMA della perdita.
+        double lossEwmaAlpha = default(0.2);
+        // Banda morta in risalita, frazione della soglia che aveva fatto scendere.
+        double qualityHysteresis = default(0.2);
+
         @signal[packetSent](type=inet::Packet);
         @signal[packetReceived](type=inet::Packet);
+        @signal[lossRatioEwma];
+        @signal[requestedQualityLevel];
+        @statistic[lossRatioEwma](title="per-slot loss ratio (EWMA)"; source=lossRatioEwma; record=vector,stats; interpolationmode=linear);
+        @statistic[requestedQualityLevel](title="requested camera quality level"; source=requestedQualityLevel; record=vector,stats; interpolationmode=sample-hold);
         @statistic[packetReceived](title="packets received"; source=packetReceived; record=count,"sum(packetBytes)","vector(packetBytes)"; interpolationmode=none);
         @statistic[throughput](title="throughput"; unit=bps; source="throughput(packetReceived)"; record=vector);
         @statistic[packetReceivedDelay](title="packets received delay"; source=weightedMeanPerGroup(groupRegionsPerPacket(lifeTimePerRegion(packetReceived))); record=vector; interpolationmode=none);

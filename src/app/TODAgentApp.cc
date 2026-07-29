@@ -25,6 +25,9 @@ using namespace std;
 
 Define_Module(TODAgentApp);
 
+simsignal_t TODAgentApp::lossRatioEwmaSignal = cComponent::registerSignal("lossRatioEwma");
+simsignal_t TODAgentApp::requestedQualityLevelSignal = cComponent::registerSignal("requestedQualityLevel");
+
 
 /*
  * packetSent also fires on sensor datagrams that the agent does NOT emit,
@@ -68,6 +71,9 @@ void TODAgentApp::initialize(int stage)
         agentId = par("agentId").stdstringValue();
         samplingInterval = par("samplingInterval");
         deadlineSlack = par("deadlineSlack");
+        lossEwmaAlpha = par("lossEwmaAlpha").doubleValue();
+        qualityHysteresis = par("qualityHysteresis").doubleValue();
+        parseQualityLossThresholds(par("qualityLossThresholds").stringValue());
         carlaCommunicationManager = check_and_cast<TodCarlanetManager*>(getParentModule()->getParentModule()->getSubmodule("carlaCommunicationManager"));
     }
 }
@@ -424,17 +430,104 @@ void TODAgentApp::deliverSlot(const string& actorId)
     if (status.statusId.empty())
     {
         EV_INFO << "TODAgentApp: empty slot for actor " << actorId << ", reporting full loss" << endl;
-        sendInstruction(status, NO_INSTRUCTION_ID, 1.0);
+        int requested = updateRequestedQuality(slot, actorId, 1.0);
+        sendInstruction(status, NO_INSTRUCTION_ID, 1.0, requested);
         return;
     }
 
     double lossRatio = computeLossRatio(status);
+    int requested = updateRequestedQuality(slot, actorId, lossRatio);
     EV_INFO << "TODAgentApp: slot for actor " << actorId << " on status " << status.statusId
-            << " lossRatio " << lossRatio << " qualityLevel " << status.qualityLevel << endl;
+            << " lossRatio " << lossRatio << " producedAt " << status.qualityLevel
+            << " requesting " << requested << endl;
 
     string instructionId = carlaCommunicationManager->computeInstruction(actorId, status.statusId, agentId,
                                                                         lossRatio, status.qualityLevel);
-    sendInstruction(status, instructionId, lossRatio);
+    sendInstruction(status, instructionId, lossRatio, requested);
+}
+
+/*
+ * Parses "0.05 0.2 0.4" into the loss fractions at which the camera steps DOWN one
+ * quality level. With N thresholds there are N+1 levels, which must match the rungs
+ * in CameraSensorApp.qualityResolutions. Empty disables the adaptation.
+ */
+void TODAgentApp::parseQualityLossThresholds(const char *spec)
+{
+    qualityLossThresholds.clear();
+    if (spec == nullptr || *spec == '\0')
+    {
+        EV_INFO << "TODAgentApp: adaptive camera quality disabled" << endl;
+        return;
+    }
+
+    cStringTokenizer tokenizer(spec);
+    while (tokenizer.hasMoreTokens())
+    {
+        qualityLossThresholds.push_back(atof(tokenizer.nextToken()));
+    }
+
+    for (size_t i = 0; i < qualityLossThresholds.size(); i++)
+    {
+        if (qualityLossThresholds[i] <= 0.0 || qualityLossThresholds[i] > 1.0)
+        {
+            throw cRuntimeError("TODAgentApp: qualityLossThresholds must be loss fractions in (0,1], got '%s'", spec);
+        }
+        if (i > 0 && qualityLossThresholds[i] <= qualityLossThresholds[i - 1])
+        {
+            throw cRuntimeError("TODAgentApp: qualityLossThresholds must be strictly increasing, got '%s'", spec);
+        }
+    }
+}
+
+/*
+ * Feeds one slot's loss into the actor's EWMA and moves the level it is asked for.
+ *
+ * Down is immediate: as soon as the smoothed loss passes the threshold of the
+ * current level, the agent asks for fewer pixels. Up needs the loss to fall under
+ * that same threshold reduced by the hysteresis band, otherwise a link sitting on
+ * a boundary would swing between two resolutions every slot.
+ */
+int TODAgentApp::updateRequestedQuality(ActorSlot& slot, const string& actorId, double lossRatio)
+{
+    if (qualityLossThresholds.empty())
+    {
+        return 0;
+    }
+
+    // The first slot seeds the average, so the agent does not spend its first
+    // decisions climbing out of an optimistic zero.
+    if (!slot.hasLossSample)
+    {
+        slot.lossEwma = lossRatio;
+        slot.hasLossSample = true;
+    }
+    else
+    {
+        slot.lossEwma = lossEwmaAlpha * lossRatio + (1.0 - lossEwmaAlpha) * slot.lossEwma;
+    }
+    emit(lossRatioEwmaSignal, slot.lossEwma);
+
+    int level = slot.requestedLevel;
+
+    while (level < (int) qualityLossThresholds.size() && slot.lossEwma > qualityLossThresholds[level])
+    {
+        level++;
+    }
+
+    while (level > 0 && slot.lossEwma < qualityLossThresholds[level - 1] * (1.0 - qualityHysteresis))
+    {
+        level--;
+    }
+
+    if (level != slot.requestedLevel)
+    {
+        EV_INFO << "TODAgentApp: actor " << actorId << " loss (EWMA) " << slot.lossEwma
+                << " -> requesting camera quality level " << slot.requestedLevel << " => " << level << endl;
+        slot.requestedLevel = level;
+    }
+
+    emit(requestedQualityLevelSignal, (long) slot.requestedLevel);
+    return slot.requestedLevel;
 }
 
 /*
@@ -480,7 +573,8 @@ double TODAgentApp::computeLossRatio(const StatusAcc& status) const
  * message is a single fixed-size, byte-aligned chunk that fits in one datagram.
  * If the actor's connection is gone the instruction is simply dropped.
  */
-void TODAgentApp::sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio)
+void TODAgentApp::sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio,
+                                  int requestedQualityLevel)
 {
     auto reply = replySocketByActor.find(status.actorId);
     if (reply == replySocketByActor.end() || reply->second == nullptr)
@@ -499,6 +593,8 @@ void TODAgentApp::sendInstruction(const StatusAcc& status, const string& instruc
     data->setStatusProcessingTime(status.firstArrivalTime);
     data->setInstructionCreationTime(simTime());
     data->setLossRatio(lossRatio);
+    // the level the car should produce its next frames at
+    data->setRequestedQualityLevel(requestedQualityLevel);
 
     auto creationTimeTag = data->addTag<CreationTimeTag>();
     creationTimeTag->setCreationTime(simTime());

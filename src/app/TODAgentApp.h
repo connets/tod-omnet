@@ -90,8 +90,33 @@ private:
         deque<string> settledOrder;                  // eviction order for settled
         deque<StatusAcc> toDeliver;                  // snapshots waiting out processingStatusTime
         simtime_t slotStart = 0;                     // start of the window now accumulating
+
+        // Camera quality the agent is asking this actor for, from its own loss.
+        double lossEwma = 0.0;
+        bool hasLossSample = false;
+        int requestedLevel = 0;
     };
     map<string, ActorSlot> actorSlots;              // actorId -> slot state
+
+    /*
+     * Quality ladder, decided HERE and not on the car.
+     *
+     * The car can only measure the round trip of the instructions that came back,
+     * which says nothing about what was dropped on the way up: a heavily lossy
+     * uplink with a healthy downlink looks perfectly fine from the car. The agent
+     * is the only side that knows what did not arrive, so it is the side that
+     * picks the level; the request rides back on the instruction.
+     *
+     * Thresholds are loss fractions at which we step DOWN one level. Stepping back
+     * up needs the loss to fall below the threshold that took us down, shrunk by
+     * the hysteresis band, so a link on a boundary settles instead of flapping.
+     */
+    vector<double> qualityLossThresholds;
+    double lossEwmaAlpha = 0.0;
+    double qualityHysteresis = 0.0;
+
+    static simsignal_t lossRatioEwmaSignal;
+    static simsignal_t requestedQualityLevelSignal;
 
 protected:
     QuicSocket socket;                                 // listening socket
@@ -109,8 +134,11 @@ private:
     void deliverSlot(const string& actorId);
     void settle(ActorSlot& slot, const string& statusId);
     double computeLossRatio(const StatusAcc& status) const;
-    void sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio);
+    void sendInstruction(const StatusAcc& status, const string& instructionId, double lossRatio,
+                         int requestedQualityLevel);
     void dropActor(const string& actorId);
+    void parseQualityLossThresholds(const char* spec);
+    int updateRequestedQuality(ActorSlot& slot, const string& actorId, double lossRatio);
 
 protected:
     virtual int numInitStages() const override { return inet::NUM_INIT_STAGES; }

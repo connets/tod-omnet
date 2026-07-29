@@ -82,27 +82,28 @@ private:
     SensorSource currentSource;
 
     /*
-     * Adaptive camera quality.
+     * Adaptive camera quality, obeyed rather than decided.
      *
-     * The car measures how stale the instruction it just received is: the time
-     * between the sampling of the frame that produced it and its arrival here.
-     * That delay, smoothed with an EWMA, is what the operator actually suffers,
-     * and it is what selects the camera quality level. The level then travels
-     * down to the sensors, which cut the bytes they put on the wire, so the
-     * loop closes: a slower link asks for a smaller frame, which makes the link
-     * faster again.
+     * The level comes down on the instruction, because the agent is the only side
+     * that knows what did not arrive: from here an uplink that is dropping most of
+     * the frames is indistinguishable from a healthy one, since we only ever see
+     * the instructions that made it back. The car's job is to apply the requested
+     * level to its sensors, which is what actually cuts the bytes on the wire and
+     * closes the loop.
      *
-     * Thresholds are the RTT at which we step DOWN to the next level. Stepping
-     * back up requires the RTT to fall below the threshold shrunk by the
-     * hysteresis band, so a link sitting right on a boundary does not flap.
+     * The RTT is still measured, but only as a statistic: it is the delay the
+     * vehicle really suffers and it is the interesting number to plot.
      */
-    vector<simtime_t> qualityRttThresholds;
-    double qualityHysteresis = 0.0;
     double rttEwmaAlpha = 0.0;
     simtime_t instructionRttEwma = SIMTIME_ZERO;
     simtime_t lastInstructionArrival = SIMTIME_ZERO;
     bool hasRttSample = false;
     int qualityLevel = 0;
+
+    // Fallback when the downlink itself dies: no instruction can arrive, so no
+    // request can either, and the car still has to react on its own. 0 disables it.
+    simtime_t qualitySilenceTimeout = SIMTIME_ZERO;
+    int qualityMaxLevel = 0;
 
     static simsignal_t instructionRttEwmaSignal;
     static simsignal_t qualityLevelSignal;
@@ -114,8 +115,8 @@ protected:
 
 private:
     virtual void applyZeroDelay();
-    virtual void parseQualityRttThresholds(const char *spec);
-    virtual void updateQualityLevel(simtime_t instructionRtt);
+    virtual void trackInstructionRtt(simtime_t instructionRtt);
+    virtual void applyRequestedQuality(int requestedLevel);
     virtual void degradeOnSilence();
     virtual void createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize);
 

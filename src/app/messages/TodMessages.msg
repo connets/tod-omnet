@@ -55,6 +55,10 @@ class TodInstructionMessage extends TODMessage{
 	string actorId;
 	string instructionId;
 	double lossRatio;
+	// Camera quality level the agent is ASKING the car to produce at. The agent is
+	// the only side that knows what did not arrive, so it is the side that decides;
+	// the car obeys. 0 = full resolution, higher = fewer pixels.
+	int requestedQualityLevel = 0;
 }
 
 packet ProcessedStatusMessage{

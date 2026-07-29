@@ -27,23 +27,19 @@ simple TODCarApp like IApp
         bool zeroDelay = default(false);
 
         // --- Qualita' camera adattiva -------------------------------------------
-        // L'auto misura quanto e' vecchia l'istruzione appena arrivata (istante di
-        // arrivo meno istante di campionamento del frame che l'ha prodotta), la
-        // media con una EWMA e da quella sceglie il livello di qualita' della
-        // camera, che i sensori usano per ridurre i byte immessi in rete.
+        // Il livello lo DECIDE L'AGENTE e arriva sull'istruzione: da qui si vedono
+        // solo le istruzioni che sono tornate, quindi un uplink che scarta la meta'
+        // dei frame e' indistinguibile da uno sano. L'auto applica e non discute.
+        // Le soglie stanno in TODAgentApp.qualityLossThresholds.
         //
-        // Soglie di DISCESA, in ordine crescente: con N soglie i livelli sono N+1
-        // e devono corrispondere ai gradini di CameraSensorApp.qualityResolutions.
-        // Default vuoto = adattamento DISATTIVATO (camera sempre a piena qualita'),
-        // cosi' gli scenari gia' esistenti non cambiano comportamento. Si abilita
-        // per scenario, p.es. "60ms 120ms 220ms" in sensors.ini.
-        string qualityRttThresholds = default("");
-        // Peso del campione nuovo nella EWMA: piu' alto = piu' reattivo, piu' rumoroso.
+        // Peso del campione nuovo nella EWMA dell'RTT (ora solo statistica).
         double rttEwmaAlpha = default(0.2);
-        // Per risalire di un livello l'RTT deve scendere sotto la soglia che aveva
-        // fatto scendere, ridotta di questa frazione. Evita il flapping a cavallo
-        // della soglia.
-        double qualityHysteresis = default(0.2);
+        // Fallback per downlink morto: se non arriva nessuna istruzione non arriva
+        // nemmeno la richiesta, quindi l'auto scende di un livello ogni timeout di
+        // silenzio. 0 = disattivato.
+        double qualitySilenceTimeout @unit(s) = default(0s);
+        // Gradino piu' basso a cui il fallback puo' arrivare.
+        int qualityMaxLevel = default(3);
 
         @signal[packetSent](type=inet::Packet);
         @signal[packetReceived](type=inet::Packet);
