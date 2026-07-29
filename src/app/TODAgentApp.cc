@@ -298,6 +298,23 @@ void TODAgentApp::countSensorData(QuicSocket *socket, Packet *packet)
 
     ActorSlot& slot = actorSlots[actorId];
 
+    /*
+     * Late check on the budget, independent of how much history we keep.
+     *
+     * The settled set is bounded, so on its own it eventually forgets a statusId,
+     * and a datagram arriving after that would open a FRESH accumulation for a
+     * status CARLA has already consumed. Computing on it a second time makes
+     * ObjectStorage.get_and_remove raise IndexError on the CARLA side, which kills
+     * the run. A frame past its budget can never be acted on anyway, so rejecting
+     * it by timestamp closes that path regardless of the history size.
+     */
+    if (simTime() >= data->getCollectionTime() + frameBudget)
+    {
+        EV_INFO << "TODAgentApp: datagram for status " << statusId
+                << " arrived past its frame budget, dropped" << endl;
+        return;
+    }
+
     if (slot.settled.count(statusId))
     {
         EV_INFO << "TODAgentApp: late datagram for settled status " << statusId << endl;
