@@ -68,7 +68,12 @@ network DatagramNet
         gnb2: gNodeB { @display("p=670,290;is=vl"); }
         gnb3: gNodeB { @display("p=780,325;is=vl"); }
         gnb4: gNodeB { @display("p=890,360;is=vl"); }
-        VectorVehicle[0]: CarlaCar { @display("p=628,519"); }       // grown by the manager: [0] is the ego
+        // Size 1, NOT 0: this is the ego, declared statically so it matches by
+        // carla_id the actor CARLA creates from the config yaml. NED's name[N]
+        // declares a vector of N elements, so [0] would be an EMPTY vector and the
+        // ego would end up created dynamically during init - which is what breaks
+        // the X2 mesh (see the hero section in datagram_tod.ini).
+        VectorVehicle[1]: CarlaCar { @display("p=628,519"); }       // static TOD ego, carla_id in the ini
         VectorTraffic[numTrafficVehicles]: CarlaCar { @display("p=628,578;i=misc/car2"); }  // CARLA road traffic, also UEs
         bgVehicle[numBgVehicles]: NrUe { @display("p=628,637;i=misc/car2"); }   // synthetic radio load only
         carlaCommunicationManager: TodCarlanetManager { @display("p=50,340;is=s"); }
