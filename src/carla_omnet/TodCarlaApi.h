@@ -33,8 +33,11 @@ namespace tod_carla_api{
         std::string agent_id;
         std::string status_id;
         double loss_ratio = 0.0;
+        // Camera quality level this frame was produced at (0 = full resolution).
+        // Tells CARLA how well the operator could actually see when deciding.
+        int quality_level = 0;
     };
-    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(compute_instruction, user_message_type, actor_id, agent_id, status_id, loss_ratio)
+    NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(compute_instruction, user_message_type, actor_id, agent_id, status_id, loss_ratio, quality_level)
 
 
     /* CARLA --> OMNET */

@@ -22,10 +22,19 @@ namespace inet;
 // the internal gates, so they MUST be FieldsChunk (not `message`).
 //
 
+// Poll sent by the car app to the SensorManager. It carries the quality level
+// currently decided by the car from the measured instruction RTT, so the level
+// travels down to the sensors on the same path as the poll itself.
+message SensorCollectRequest
+{
+    int qualityLevel = 0;
+}
+
 // Poll sent by the SensorManager towards a single sensor.
 class SensorDataRequest extends FieldsChunk
 {
     simtime_t requestTime;
+    int qualityLevel = 0;
 }
 
 // Raw answer of a sensor to the SensorManager (then forwarded to the car).
@@ -34,6 +43,9 @@ class SensorDataResponse extends FieldsChunk
     uint64_t streamId;
     string sensorType;
     simtime_t collectionTime;
+    // Level the sensor actually produced this sample at, echoed back so the car
+    // can report it without assuming the sensor honoured the request.
+    int qualityLevel = 0;
 }
 
 //
@@ -56,4 +68,7 @@ class SensorData extends FieldsChunk
 
     string sensorType;
     simtime_t collectionTime;
+    // Camera quality level this frame was produced at. Travels to the agent so it
+    // can tell CARLA at which resolution the operator is actually seeing the road.
+    int qualityLevel = 0;
 }

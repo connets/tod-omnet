@@ -21,6 +21,10 @@ moduleinterface SensorBaseApp {
 	    string sensorType;
 	    volatile double dataSize @unit(B);
 	    double updateInterval @unit(s);
+	    // Quality ladder, best rung first, e.g. "1280x720 960x540 640x360".
+	    // dataSize is the payload at the FIRST rung; the others scale it by their
+	    // pixel ratio. Empty string = the sensor ignores the level (non adaptive).
+	    string qualityResolutions;
 
 		@display("i=block/source");
 

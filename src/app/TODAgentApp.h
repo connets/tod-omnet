@@ -54,6 +54,7 @@ private:
         simtime_t collectionTime;
         simtime_t firstArrivalTime;
         cMessage* closeTimer = nullptr;
+        int qualityLevel = 0;   // camera quality this frame was produced at
     };
     map<string, FrameAcc> openFrames;
     set<string> closedFrames;
@@ -75,6 +76,7 @@ private:
         simtime_t lastFrameOpenTime = 0;        // when the last frame opened (any datagram)
         string lastStatusId;                    // last statusId that produced an instruction
         vector<uint64_t> lastExpectedStreams;   // expected set of the last received frame
+        int lastQualityLevel = 0;               // quality of the last frame that did arrive
     };
     map<string, ActorWatch> actorWatch;         // actorId -> watchdog state
 
@@ -90,7 +92,7 @@ protected:
 private:
     void openFrame(const string& statusId, const string& actorId,
                    const vector<uint64_t>& expectedStreams, simtime_t collectionTime,
-                   QuicSocket* replySocket);
+                   int qualityLevel, QuicSocket* replySocket);
     void countSensorData(QuicSocket* socket, Packet* packet);
     void closeFrame(const string& statusId);
     double computeLossRatio(FrameAcc& frame, const string& actorId);

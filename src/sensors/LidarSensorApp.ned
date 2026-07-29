@@ -10,6 +10,8 @@ simple LidarSensorApp like SensorBaseApp {
         string sensorType = default("Lidar");
         volatile double dataSize @unit(B) = default(uniform(81000B, 99000B)); // ~90 KB ±10%
         double updateInterval @unit(s) = default(0.1s);                    // 10 Hz
+        // Non adattivo: la scala di qualita' e' pilotata dalla camera.
+        string qualityResolutions = default("");
         @display("i=block/source");
     gates:
         input fromManager;

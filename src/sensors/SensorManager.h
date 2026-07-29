@@ -22,9 +22,9 @@ protected:
     virtual void initialize() override;
     virtual void handleMessage(cMessage *msg) override;
 
-    void registerSensors();              // Read sensors from the input gate
-    void retrieveData();                 // Send a request to each sensor
-    void sendDataToApp(cMessage* msg);   // Send data to todCarApp after retrieving
+    void registerSensors();                     // Read sensors from the input gate
+    void retrieveData(int qualityLevel);        // Send a request to each sensor
+    void sendDataToApp(cMessage* msg);          // Send data to todCarApp after retrieving
 
 public:
     virtual ~SensorManager();

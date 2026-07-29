@@ -36,9 +36,16 @@ void SensorManager::handleMessage(cMessage *msg)
     {
         /*
          * The message arrived from the Car: its time to get the data
-         * from the sensors
+         * from the sensors. The poll carries the quality level the car decided
+         * from the measured instruction RTT; an ordinary cMessage (older callers)
+         * means "stay at the best level".
          */
-        retrieveData();
+        int qualityLevel = 0;
+        if (auto collect = dynamic_cast<SensorCollectRequest*>(msg))
+        {
+            qualityLevel = collect->getQualityLevel();
+        }
+        retrieveData(qualityLevel);
         delete msg;
     }
     else if (msg->arrivedOn("fromSensors"))
@@ -59,7 +66,7 @@ void SensorManager::handleMessage(cMessage *msg)
  * This method contacts the sensors to ask them all the data
  * that it's ready
  */
-void SensorManager::retrieveData()
+void SensorManager::retrieveData(int qualityLevel)
 {
     frameId++;
 
@@ -71,6 +78,9 @@ void SensorManager::retrieveData()
         auto request = makeShared<SensorDataRequest>();
 
         request->setRequestTime(simTime());
+        // Every sensor is told the level; only the ones with a quality ladder
+        // configured (today the cameras) actually act on it.
+        request->setQualityLevel(qualityLevel);
         request->setChunkLength(B(8));
         packet->insertAtBack(request);
         send(packet, "toSensors", i);

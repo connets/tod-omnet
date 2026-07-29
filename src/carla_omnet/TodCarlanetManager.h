@@ -33,7 +33,7 @@ public:
     //API used by applications
     string getActorStatus(string actorId);
     void getActorStatusZeroDelay(string actorId);
-    string computeInstruction(string actorId, string statusId, string agentId, double lossRatio);
+    string computeInstruction(string actorId, string statusId, string agentId, double lossRatio, int qualityLevel = 0);
     void applyInstruction(string actorId, string instructionId);
 
     string getCooperativeStatusFromCarlaActor(string actorId);

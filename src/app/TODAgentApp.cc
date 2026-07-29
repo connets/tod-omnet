@@ -242,7 +242,7 @@ void TODAgentApp::socketDestroyed(QuicSocket *socket)
  */
 void TODAgentApp::openFrame(const string& statusId, const string& actorId,
                             const vector<uint64_t>& expectedStreams, simtime_t collectionTime,
-                            QuicSocket* replySocket)
+                            int qualityLevel, QuicSocket* replySocket)
 {
     replySocketByActor[actorId] = replySocket;
 
@@ -274,6 +274,7 @@ void TODAgentApp::openFrame(const string& statusId, const string& actorId,
     frame.expectedStreams = expectedStreams;
     frame.collectionTime = collectionTime;
     frame.firstArrivalTime = simTime();
+    frame.qualityLevel = qualityLevel;
 
     auto timer = new ProcessedStatusMessage("closeFrame", CLOSE_FRAME_MSG_KIND);
     timer->setStatusId(statusId.c_str());
@@ -328,7 +329,8 @@ void TODAgentApp::countSensorData(QuicSocket *socket, Packet *packet)
             expected.push_back(data->getExpectedStreams(i));
         }
 
-        openFrame(statusId, data->getActorId(), expected, data->getCollectionTime(), socket);
+        openFrame(statusId, data->getActorId(), expected, data->getCollectionTime(),
+                  data->getQualityLevel(), socket);
     }
 
     auto& frame = openFrames[statusId];
@@ -358,14 +360,17 @@ void TODAgentApp::closeFrame(const string& statusId)
     FrameAcc& frame = openFrame->second;
 
     double lossRatio = computeLossRatio(frame, frame.actorId);
-    EV_INFO << "TODAgentApp: closing frame " << statusId << " lossRatio " << lossRatio << endl;
+    EV_INFO << "TODAgentApp: closing frame " << statusId << " lossRatio " << lossRatio
+            << " qualityLevel " << frame.qualityLevel << endl;
 
-    string instructionId = carlaCommunicationManager->computeInstruction(frame.actorId, statusId, agentId, lossRatio);
+    string instructionId = carlaCommunicationManager->computeInstruction(frame.actorId, statusId, agentId,
+                                                                        lossRatio, frame.qualityLevel);
     createAndSendInstructionMessage(frame, statusId, instructionId, lossRatio);
 
     ActorWatch& watch = actorWatch[frame.actorId];
     watch.lastStatusId = statusId;
     watch.lastExpectedStreams = frame.expectedStreams;
+    watch.lastQualityLevel = frame.qualityLevel;
 
     closedFrames.insert(statusId);
     openFrames.erase(openFrame);
@@ -514,13 +519,16 @@ void TODAgentApp::watchdogTick(const string& actorId)
         lost.expectedStreams = watch.lastExpectedStreams;
         lost.collectionTime = watch.lastFrameOpenTime;
         lost.firstArrivalTime = simTime();
+        // nothing arrived, so the best we can say is the quality of the last frame
+        lost.qualityLevel = watch.lastQualityLevel;
 
         double lossRatio = computeLossRatio(lost, actorId);
 
         EV_INFO << "TODAgentApp: 100% loss slot for actor " << actorId
                 << " lossRatio " << lossRatio << " (reusing status " << watch.lastStatusId << ")" << endl;
 
-        string instructionId = carlaCommunicationManager->computeInstruction(actorId, watch.lastStatusId, agentId, lossRatio);
+        string instructionId = carlaCommunicationManager->computeInstruction(actorId, watch.lastStatusId, agentId,
+                                                                            lossRatio, lost.qualityLevel);
         createAndSendInstructionMessage(lost, watch.lastStatusId, instructionId, lossRatio);
     }
 

@@ -73,9 +73,36 @@ private:
         string sensorType;
         simtime_t collectionTime;
         int64_t headerBytes;
+        int qualityLevel;
     };
 
     SensorSource currentSource;
+
+    /*
+     * Adaptive camera quality.
+     *
+     * The car measures how stale the instruction it just received is: the time
+     * between the sampling of the frame that produced it and its arrival here.
+     * That delay, smoothed with an EWMA, is what the operator actually suffers,
+     * and it is what selects the camera quality level. The level then travels
+     * down to the sensors, which cut the bytes they put on the wire, so the
+     * loop closes: a slower link asks for a smaller frame, which makes the link
+     * faster again.
+     *
+     * Thresholds are the RTT at which we step DOWN to the next level. Stepping
+     * back up requires the RTT to fall below the threshold shrunk by the
+     * hysteresis band, so a link sitting right on a boundary does not flap.
+     */
+    vector<simtime_t> qualityRttThresholds;
+    double qualityHysteresis = 0.0;
+    double rttEwmaAlpha = 0.0;
+    simtime_t instructionRttEwma = SIMTIME_ZERO;
+    simtime_t lastInstructionArrival = SIMTIME_ZERO;
+    bool hasRttSample = false;
+    int qualityLevel = 0;
+
+    static simsignal_t instructionRttEwmaSignal;
+    static simsignal_t qualityLevelSignal;
 
 protected:
     QuicSocket socket;
@@ -84,6 +111,9 @@ protected:
 
 private:
     virtual void applyZeroDelay();
+    virtual void parseQualityRttThresholds(const char *spec);
+    virtual void updateQualityLevel(simtime_t instructionRtt);
+    virtual void degradeOnSilence();
     virtual void createAndSendFragmentPacket(int totalFragments, int64_t dataBytes, int64_t chunkSize);
 
     template <typename SourcePtr>
@@ -96,6 +126,8 @@ private:
         currentSource.sensorType = source->getSensorType();
         currentSource.collectionTime = source->getCollectionTime();
         currentSource.headerBytes = B(source->getChunkLength()).get();
+        // level the sensor actually produced at, not the one we asked for
+        currentSource.qualityLevel = source->getQualityLevel();
     }
 
     /*
